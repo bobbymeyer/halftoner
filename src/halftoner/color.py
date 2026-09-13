@@ -2,7 +2,32 @@
 
 from __future__ import annotations
 
+import io
+
 import numpy as np
+
+
+def to_srgb_image(img):
+    """A PIL image in sRGB, converted from its embedded ICC profile when it has one.
+
+    Phone cameras tag Display P3. It shares sRGB's transfer function but has wider primaries,
+    so reading its numbers as sRGB leaves every saturated colour shifted -- a few counts on a
+    muted photo, but up to 15% on a strong spot colour, which is exactly the kind of thing an
+    ink set is chosen from. Untagged images are assumed sRGB, as before.
+
+    Falls back to assuming sRGB if the profile is unusable or littleCMS is missing: a shifted
+    render beats refusing to render, and this is the last place that should raise.
+    """
+    icc = img.info.get("icc_profile")
+    if not icc:
+        return img
+    try:
+        from PIL import ImageCms
+
+        src = ImageCms.ImageCmsProfile(io.BytesIO(icc))
+        return ImageCms.profileToProfile(img, src, ImageCms.createProfile("sRGB"), outputMode="RGB")
+    except Exception:  # unusable profile, or Pillow built without littleCMS
+        return img
 
 
 def srgb_to_linear(v):

@@ -7,9 +7,10 @@ from pathlib import Path
 
 import numpy as np
 from PIL import Image as PILImage
+from PIL import ImageOps
 
 from ..canvas import MM_PER_INCH
-from ..color import srgb_to_linear
+from ..color import srgb_to_linear, to_srgb_image
 
 _LUT = srgb_to_linear(np.arange(256) / 255.0).astype(np.float32)
 
@@ -19,7 +20,11 @@ def load_scan(path: str | Path) -> tuple[np.ndarray, float | None]:
     PILImage.MAX_IMAGE_PIXELS = None  # scans are legitimately huge
     img = PILImage.open(path)
     dpi = img.info.get("dpi")
-    rgb = np.asarray(img.convert("RGB"))
+    # Every box the caller gives -- paper, patches, wedge -- is millimetres from the top-left of
+    # the scan as they see it, so the pixels have to be in that orientation too. Screen angles
+    # survive a quarter turn (they are read mod 90), but registration offsets do not: a 90-degree
+    # rotation swaps dx and dy. A no-op when the tag is absent or 1, as it is on any flatbed scan.
+    rgb = np.asarray(to_srgb_image(ImageOps.exif_transpose(img)).convert("RGB"))
     if not dpi or dpi[0] <= 1:
         return rgb, None
     d = float(dpi[0])

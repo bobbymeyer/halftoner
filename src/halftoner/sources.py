@@ -19,7 +19,7 @@ import numpy as np
 from PIL import Image as PILImage
 from PIL import ImageOps
 
-from .color import luma_linear, srgb_to_linear
+from .color import luma_linear, srgb_to_linear, to_srgb_image
 
 Kind = str
 EMPTY = {"area": 0.0, "tone": 1.0}
@@ -92,7 +92,7 @@ class Image(Source):
         # exif_transpose first: a phone shoots portrait by rotating the sensor and recording the
         # orientation tag, so the stored pixels are sideways. Without this every such photo is
         # screened rotated, and "cover" crops the wrong axis. A no-op when the tag is absent or 1.
-        src = ImageOps.exif_transpose(PILImage.open(self.path))
+        src = to_srgb_image(ImageOps.exif_transpose(PILImage.open(self.path)))
         rgb = srgb_to_linear(np.asarray(src.convert("RGB"), dtype=np.float64) / 255.0)
         if callable(self.channel):
             self._lin = np.asarray(self.channel(rgb), dtype=np.float32)
