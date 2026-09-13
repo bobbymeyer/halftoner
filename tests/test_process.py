@@ -65,7 +65,8 @@ def test_process_plates_in_kcmy_order_at_classic_angles(photo):
     names = [p.ink.name for p in job.plates()]
     assert names == ["black", "cyan", "magenta", "yellow"]
     assert [job.angle_for(i) for i in job.inks] == [45, 15, 75, 0]
-    assert all(c.ok for c in job.report().checks if c.kind == "angle")
+    angles = [c for c in job.report().checks if c.kind == "angle"]
+    assert len(angles) == 6 and all(c.ok for c in angles)  # every KCMY pair, all at one ruling
     black, cyan, magenta, yellow = job.plates()
     red = (2, 18, 2, 18)  # the red quadrant, inset from its edges
     assert _mean_in(magenta, *red) == pytest.approx(1.0) and _mean_in(yellow, *red) == pytest.approx(1.0)

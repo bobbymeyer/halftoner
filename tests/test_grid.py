@@ -59,7 +59,8 @@ def test_report_shows_the_lock_and_flags_unlocked_rows():
     assert "grid lock" in str(report) and "tan 1/4" in str(report)
     rows = next(c for c in report.checks if c.kind == "grid")
     assert not rows.ok
-    assert all(c.ok for c in _job(grid=ht.ModuleGrid(20.0, 40.0, origin=(5.0, 5.0))).report().checks if c.kind == "grid")
+    rows = [c for c in _job(grid=ht.ModuleGrid(20.0, 40.0, origin=(5.0, 5.0))).report().checks if c.kind == "grid"]
+    assert len(rows) == 1 and rows[0].ok  # the one ink; a 40 mm repeat is whole periods
 
 
 def test_capping_stays_on_the_grid_and_under_the_ceiling():

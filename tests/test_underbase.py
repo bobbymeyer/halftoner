@@ -12,6 +12,9 @@ from halftoner.render.raster import composite
 GARMENT = "#161618"
 
 
+# The default choke is deliberately sub-cell: 0.3 mm at 40 lpi is 0.47 of a 0.635 mm cell, so it
+# cuts region edges at full resolution but leaves tonal edges alone. Tests that want tonal
+# erosion must pass a choke of a full cell or more.
 def _shirt(source, choke=0.3, gain=0.0, weights=None, ruling=40, opacity=0.0, underbase=True, ceiling=150):
     base = ht.Underbase(ink=ht.Ink("white", "#F4F4F0", angle=22.5, opacity=0.9), choke_mm=choke, gain=gain,
                         weights=weights or {}) if underbase else None
@@ -103,7 +106,8 @@ def test_garment_profile_builds_an_underbase():
     assert job.underbase.choke_mm == 0.3 and job.underbase.ink.angle == 22.5
     assert [i.name for i in job.print_inks] == ["underbase", "gold", "red"]
     assert job.inks.inks[0].opacity == 0.8
-    assert all(c.ok for c in job.report().checks if c.kind == "angle")
+    angles = [c for c in job.report().checks if c.kind == "angle"]
+    assert len(angles) == 3 and all(c.ok for c in angles)  # one per pair, underbase included
 
 
 def _choke_check(job):
