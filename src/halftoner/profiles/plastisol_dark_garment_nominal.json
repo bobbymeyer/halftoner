@@ -1,0 +1,21 @@
+{
+  "name": "plastisol_dark_garment_nominal",
+  "provenance": "NOMINAL - generic plastisol-on-dark-cotton ranges, not measured",
+  "notes": "Starting point only. The garment color is the paper; colors are near-opaque plastisol printed over a flashed white underbase.",
+  "measurements": [],
+  "substrate": {
+    "paper": "#1B1B1D",
+    "ruling_ceiling_lpi": 65,
+    "gain": 0.22,
+    "min_dot": 0.1,
+    "max_dot": 0.88,
+    "min_printable_mm": 0.15,
+    "compression": null,
+    "output_condition": null
+  },
+  "screen": {"ruling_lpi": 45, "shape": {"shape": "elliptical", "ratio": 1.2}, "angles": [52.5, 82.5, 7.5, 37.5]},
+  "press": {"misregistration": 0.3, "drift": 0.3, "slur": 0.0, "press_angle": 90, "density_variance": 0.05, "trap_gap": 0.0, "extra_gain": 0.0},
+  "transfer": {"yule_nielsen_n": 1.0, "compensate_gain": true},
+  "ink": {"density": 1.0, "opacity": 0.8},
+  "underbase": {"choke_mm": 0.3, "gain": 0.3, "ink": {"name": "underbase", "color": "#F4F4F0", "angle": 22.5, "opacity": 0.9}}
+}

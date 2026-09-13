@@ -121,6 +121,27 @@ def press_from_dict(d: dict) -> Press:
     return Press(**d)
 
 
+def underbase_to_dict(ub, base=None) -> dict | None:
+    if ub is None:
+        return None
+    return {
+        "ink": ink_to_dict(ub.ink, base), "choke_mm": ub.choke_mm, "weights": dict(ub.weights),
+        "gain": ub.gain.to_spec() if isinstance(ub.gain, Curve) else ub.gain, "compensate_gain": ub.compensate_gain,
+    }
+
+
+def underbase_from_dict(d, base=None):
+    from .underbase import Underbase
+
+    if not d:
+        return None
+    d = dict(d)
+    d["ink"] = ink_from_dict(d["ink"], base)
+    if isinstance(d.get("gain"), (list, dict)):
+        d["gain"] = Curve.from_spec(d["gain"])
+    return Underbase(**d)
+
+
 def recipe_to_dict(r, base: Path | None = None) -> dict:
     return {
         "halftoner": FORMAT,
@@ -135,6 +156,7 @@ def recipe_to_dict(r, base: Path | None = None) -> dict:
         "inks": [ink_to_dict(i, base) for i in r.inks],
         "overprint": [{"inks": sorted(k), "color": c} for k, c in r.inks.overprint.items()],
         "source": source_to_spec(r.source, base),
+        "underbase": underbase_to_dict(r.underbase, base),
     }
 
 
@@ -155,6 +177,7 @@ def recipe_from_dict(d: dict, base: Path | None = None):
         transfer=Transfer(**d["transfer"]),
         seed=d.get("seed"),
         profile=d.get("profile"),
+        underbase=underbase_from_dict(d.get("underbase"), base),
     )
 
 

@@ -7,7 +7,7 @@ tells you where the line is.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 import numpy as np
 
@@ -15,9 +15,10 @@ from .canvas import Canvas
 from .ink import InkSet
 from .press import Press
 from .screen import Plate, PlatePart, Screen, cell_range, lpi_to_pitch_mm
-from .sources import Layered, clip_of, clip_regions
+from .sources import Layered, Masked, clip_of, clip_regions
 from .substrate import Substrate
 from .transfer import Transfer
+from .underbase import Underbase, erode
 
 GEOMETRY_WARN = 300_000
 MIN_ANGLE_SEPARATION = 15.0
@@ -97,6 +98,7 @@ class Recipe:
     transfer: Transfer = field(default_factory=Transfer)
     seed: int | None = None
     profile: str | None = None  # name of the press profile this was built from, for the record
+    underbase: Underbase | None = None  # plate printed first, derived from where the colors print
 
     def to_dict(self, base=None) -> dict:
         from .serialize import recipe_to_dict
@@ -134,22 +136,41 @@ class Recipe:
             raise ValueError(f"ink {ink.name!r} has no source and the recipe has none")
         return src
 
+    @property
+    def print_inks(self) -> InkSet:
+        """Inks in print order: the underbase first when there is one, then the colors."""
+        if self.underbase is None:
+            return self.inks
+        overprint = {tuple(k): v for k, v in self.inks.overprint.items()}
+        return InkSet(self.underbase.ink, *self.inks.inks, overprint=overprint)
+
+    def is_underbase(self, ink) -> bool:
+        return self.underbase is not None and ink is self.underbase.ink
+
     def plates(self) -> list[Plate]:
+        """Plates in print order, matching print_inks."""
         if self._plates is None:
-            self._plates = [self._build_plate(ink) for ink in self.inks]
+            colors = [self._build_plate(ink) for ink in self.inks]
+            self._plates = ([self._build_underbase(colors)] if self.underbase else []) + colors
         return self._plates
 
     def invalidate(self) -> None:
         self._plates = None
 
-    def _build_plate(self, ink) -> Plate:
+    def _grid(self, ink) -> Plate:
+        """An empty plate: this ink's rotated cell grid over the canvas, the bleed, and press travel."""
         sc, cv, press = self.screen, self.canvas, self.press
         pitch = lpi_to_pitch_mm(self.ruling_for(ink))
         # Cells out past the bleed (film and PDF print it) plus however far the press can move them.
         margin = press.misregistration * (1 + press.drift) * 2 + press.slur + pitch + cv.bleed_mm
         i0, j0, ni, nj = cell_range(cv, pitch, ink.angle, sc.origin, sc.phase, margin)
         empty = np.zeros((nj, ni))
-        plate = Plate(ink, ink.shape or sc.shape, pitch, ink.angle, sc.origin, sc.phase, i0, j0, empty, empty)
+        return Plate(ink, ink.shape or sc.shape, pitch, ink.angle, sc.origin, sc.phase, i0, j0, empty, empty)
+
+    def _build_plate(self, ink) -> Plate:
+        cv, press = self.canvas, self.press
+        plate = self._grid(ink)
+        pitch = plate.pitch_mm
         X, Y = plate.centers()
         src = self.source_for(ink)
         layers = src.sources if isinstance(src, Layered) else [src]
@@ -181,6 +202,52 @@ class Recipe:
             plate.parts = [PlatePart(plate.area, plate.printed)]
         else:
             plate.parts = [PlatePart(a, printed_of(a), c, clip_regions(s)) for a, c, s in zip(areas, clips, layers)]
+        return plate
+
+    def _layer_coverage(self, plate, X, Y, cell_mm):
+        """Per layer of a color plate at arbitrary points: (printed coverage ignoring region cuts,
+        region presence including edge cells, the layer's exact clip)."""
+        ink = plate.ink
+        src = self.source_for(ink)
+        out = []
+        for layer in src.sources if isinstance(src, Layered) else [src]:
+            inner = layer
+            presence = np.ones(np.shape(X), dtype=bool)
+            while isinstance(inner, Masked):
+                presence &= inner.region.signed_distance(X, Y) >= -cell_mm * np.sqrt(0.5)
+                inner = inner.source
+            if isinstance(inner, Layered):
+                raise ValueError("an underbase needs Layered sources at the top level, not inside a Masked")
+            area = self.transfer.plate_area(inner.sample(X, Y, cell_mm, self.canvas), inner.kind, ink,
+                                            self.substrate, plate.bias)
+            coverage = np.where(area > 0, Transfer.printed_area(area, self.substrate), 0.0)
+            out.append((coverage, presence, clip_of(layer)))
+        return out
+
+    def _build_underbase(self, colors: list[Plate]) -> Plate:
+        ub = self.underbase
+        plate = self._grid(ub.ink)
+        X, Y = plate.centers()
+        radius = ub.choke_mm / plate.pitch_mm
+        demand = np.zeros(X.shape)
+        clips = []
+        for color in colors:
+            weight = ub.weights.get(color.ink.name, 1.0)
+            if weight <= 0:
+                continue
+            for coverage, presence, clip in self._layer_coverage(color, X, Y, plate.pitch_mm):
+                # Erode tone before applying region presence: region edges get their choke at full resolution.
+                demand = np.maximum(demand, weight * np.where(presence, erode(coverage, radius), 0.0))
+                clips.append(clip)
+        own = replace(self.substrate, gain=ub.gain_curve)  # the base spreads on its own terms
+        transfer = replace(self.transfer, compensate_gain=ub.compensate_gain)
+        plate.area = transfer.plate_area(demand, "area", ub.ink, own)
+        plate.printed = np.where(plate.area > 0, Transfer.printed_area(plate.area, own, self.press.gain_curve), 0.0)
+        clip = None
+        if clips and all(c is not None for c in clips):
+            choke = ub.choke_mm
+            clip = lambda x, y, inset=0.0: np.logical_or.reduce([c(x, y, inset + choke) for c in clips])  # noqa: E731
+        plate.parts = [PlatePart(plate.area, plate.printed, clip)]
         return plate
 
     # --- outputs --------------------------------------------------------------------
@@ -240,7 +307,7 @@ class Recipe:
             on = (X >= 0) & (X < cv.width_mm) & (Y >= 0) & (Y < cv.height_mm)
             a, p = plate.area[on], plate.printed[on]
             partial = a[(a > 0) & (a < 1)]
-            ratio = self.source_for(ink).sampling_ratio(plate.pitch_mm, cv)
+            ratio = None if self.is_underbase(ink) else self.source_for(ink).sampling_ratio(plate.pitch_mm, cv)
             min_dot = float(partial.min()) if partial.size else None
             min_mm = plate.pitch_mm * np.sqrt(4 * min_dot / np.pi) if min_dot is not None else None
             dots = int((a > 0).sum())
@@ -266,12 +333,13 @@ class Recipe:
                 checks.append(Check(f"{ink.name} coverage target", abs(got - ink.coverage) <= 0.005,
                                     f"target {ink.coverage:.1%}, got {got:.1%} (bias {plate.bias:.2f})", "coverage"))
 
-        for a, b, sep in self.inks.angle_separations():
-            ia = next(i for i in self.inks if i.name == a)
-            ib = next(i for i in self.inks if i.name == b)
+        inks = self.print_inks
+        for a, b, sep in inks.angle_separations():
+            ia = next(i for i in inks if i.name == a)
+            ib = next(i for i in inks if i.name == b)
             if self.ruling_for(ia) == self.ruling_for(ib):
                 checks.append(Check(f"{a}/{b} angle separation", sep >= MIN_ANGLE_SEPARATION,
                                     f"{sep:.1f} deg (moire below {MIN_ANGLE_SEPARATION:g})", "angle"))
         checks.append(Check("geometry count", total_dots <= GEOMETRY_WARN,
                             f"{total_dots:,} dots (browsers struggle past {GEOMETRY_WARN:,}; use resvg)", "geometry"))
-        return Report(cv, sub, rows, self.inks.palette(sub.paper), checks, self.profile)
+        return Report(cv, sub, rows, inks.palette(sub.paper), checks, self.profile)

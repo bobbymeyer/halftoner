@@ -35,6 +35,7 @@ class PressProfile:
     provenance: str = "unspecified"
     notes: str = ""
     measurements: list[dict] = field(default_factory=list)  # scans the numbers came from
+    underbase: dict | None = None  # garment presses: choke_mm, gain, weights, ink {name, color, angle, opacity}
 
     @property
     def measured(self) -> bool:
@@ -71,6 +72,7 @@ class PressProfile:
             "press": self.press,
             "transfer": self.transfer,
             "ink": self.ink,
+            "underbase": self.underbase,
         }
 
     @classmethod
@@ -123,11 +125,29 @@ class PressProfile:
                 made.append(self.make_ink(name, color, i, **(rest[0] if rest else {})))
         return InkSet(*made, overprint=overprint)
 
+    def make_underbase(self, **overrides):
+        """An Underbase from this profile's underbase section (or plain defaults), with overrides."""
+        from .underbase import Underbase
+
+        spec = {**(self.underbase or {}), **overrides}
+        ink_spec = {"name": "underbase", "color": "#F4F4F0", "angle": 22.5, "opacity": 0.9, **spec.pop("ink", {})}
+        name, color = ink_spec.pop("name"), ink_spec.pop("color")
+        if "curve" in ink_spec:
+            ink_spec["curve"] = Curve.from_spec(ink_spec["curve"])
+        if isinstance(spec.get("gain"), (list, dict)):
+            spec["gain"] = Curve.from_spec(spec["gain"])
+        return Underbase(ink=Ink(name, color, **ink_spec), **spec)
+
     def recipe(self, canvas, inks, source=None, seed: int = 0, screen: dict | None = None,
-               press: dict | None = None, transfer: dict | None = None, substrate: dict | None = None):
+               press: dict | None = None, transfer: dict | None = None, substrate: dict | None = None,
+               underbase: bool | dict = False):
         from .recipe import Recipe
 
         sub = replace(self.substrate, **substrate) if substrate else self.substrate
+        if isinstance(underbase, dict):
+            base = self.make_underbase(**underbase)
+        else:
+            base = self.make_underbase() if underbase else None
         return Recipe(
             canvas=canvas,
             inks=inks if isinstance(inks, InkSet) else self.inks(*inks),
@@ -138,4 +158,5 @@ class PressProfile:
             transfer=self.make_transfer(**(transfer or {})),
             seed=seed,
             profile=self.name,
+            underbase=base,
         )

@@ -94,7 +94,8 @@ class InkSet:
             for ink in self.inks:
                 if ink.name in present and ink.name not in done:
                     laid = base * ink.transmittance
-                    base = (1 - ink.opacity) * laid + ink.opacity * paper_lin * ink.transmittance
+                    # An opaque ink covers with its own color, whatever is under it (white on a black shirt).
+                    base = (1 - ink.opacity) * laid + ink.opacity * ink.transmittance
             out[mask] = base
         return out
 

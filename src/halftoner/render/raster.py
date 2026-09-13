@@ -27,11 +27,11 @@ def composite(recipe, supersample: int = 4, artifacts: bool = True, strip_rows: 
     plates = recipe.plates()
     if len(plates) > 8:
         raise ValueError("at most 8 inks")
-    primaries = recipe.inks.primaries(recipe.substrate.paper).astype(np.float32)
-    offsets = press.offsets(recipe.inks.inks, canvas) if artifacts else None
+    primaries = recipe.print_inks.primaries(recipe.substrate.paper).astype(np.float32)
+    offsets = press.offsets(recipe.print_inks.inks, canvas) if artifacts else None
     slur = press.slur_vector() if artifacts and press.slur > 0 else None
     choke = press.trap_gap / 2 if artifacts else 0.0
-    variance = press.density_fields(recipe.inks.inks, canvas) if artifacts else {}
+    variance = press.density_fields(recipe.print_inks.inks, canvas) if artifacts else {}
     thresholds = [[p.shape.threshold(part.printed if artifacts else part.area) for part in p.parts] for p in plates]
     if variance:
         paper = np.maximum(primaries[0], 1e-6)

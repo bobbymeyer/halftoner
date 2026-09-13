@@ -61,7 +61,12 @@ def cap_ruling(recipe):
             ink = replace(ink, ruling_lpi=ceiling)
         inks.append(ink)
     overprint = {tuple(k): v for k, v in recipe.inks.overprint.items()}
-    return replace(recipe, inks=InkSet(*inks, overprint=overprint)), capped
+    job = replace(recipe, inks=InkSet(*inks, overprint=overprint))
+    ub = recipe.underbase
+    if ub is not None and recipe.ruling_for(ub.ink) > ceiling:
+        capped[ub.ink.name] = (recipe.ruling_for(ub.ink), ceiling)
+        job = replace(job, underbase=replace(ub, ink=replace(ub.ink, ruling_lpi=ceiling)))
+    return job, capped
 
 
 def apply_policy(recipe, target: str, force: bool = False):

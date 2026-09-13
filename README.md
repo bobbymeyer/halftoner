@@ -69,6 +69,17 @@ Targets    screen  supersampled, press artifacts, ink bitmask → Neugebauer pri
 
 The bundled profiles are labeled `NOMINAL`. A profile named for a tradition should come from measured scans (see `_template_measured.json.example`): ruling counted against trim size, angles read off a rotated crop, overprints sampled, plate walk measured. The film target's step wedge closes the gain loop: print it, measure the patches, feed the pairs back as `gain`.
 
+## Underbase (dark garments)
+
+`Recipe(underbase=Underbase(...))`, `profile.recipe(..., underbase=True)`, or `halftoner new --underbase` adds a plate printed first, derived from where the colors print:
+
+- **Demand**: at each underbase cell, the heaviest *printed* coverage of any color, each through its own tone chain, optionally weighted per ink (`weights={"navy": 0.5}` for less base under dark inks).
+- **Choke** (`choke_mm`): tonal edges are eroded on the underbase's cell grid (minimum over a disk); region edges are cut at full resolution with every color region inset by the choke, so misregistration doesn't show a halo.
+- **Own gain** (`gain`): compensated on its own curve, since white on cotton spreads far more than the colors on the flashed base.
+- It prints first, so it's the key plate for misregistration, joins the palette (`underbase + gold`), the angle checks, ruling caps, film, and PDF separations.
+
+The garment is the substrate's paper color. Inks with `opacity` cover with their own color, so plastisol over the base reads true while ink straight on the shirt sinks. `plastisol_dark_garment_nominal` is a starting profile (NOMINAL, not measured).
+
 ## Press artifacts
 
 All seeded, all per ink (never per RGB channel), applied by the screen and pod targets and left off film.
@@ -143,5 +154,7 @@ Built to the standard and checked structurally and by rendering (`tests/test_pdf
 | 18 | Film positive export | done (registration marks, labels, mirrored, 1-bit) |
 | 22 | Mean coverage as a settable target | done (`Ink(coverage=0.2)`) |
 | 24 | PDF/X export with separations and overprint flags | done (PDF/X-1a:2001; not yet preflighted) |
-| 19–21, 23 | Underbase/choke, garment base, grid-commensurate ruling, FM screening | not yet |
+| 19 | Underbase generation with choke, separately gain-compensated | done |
+| 20 | Garment color as the compositing base | partial: garment is the paper, opaque inks cover it; tone limits relative to the base not yet |
+| 21, 23 | Grid-commensurate ruling, FM screening | not yet |
 | — | resvg rasterizing of SVG output | not yet |

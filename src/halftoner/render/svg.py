@@ -40,7 +40,7 @@ def write_svg(recipe, path, artifacts: bool = False, precision: int = 2) -> dict
     """Separations as layered groups. The multiply blend is a preview only;
     the accurate composite (with overprint overrides) is the raster target."""
     canvas = recipe.canvas
-    offsets = recipe.press.offsets(recipe.inks.inks, canvas) if artifacts else {}
+    offsets = recipe.press.offsets(recipe.print_inks.inks, canvas) if artifacts else {}
     w, h = canvas.width_mm, canvas.height_mm
     lines = [
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{w:g}mm" height="{h:g}mm" viewBox="0 0 {w:g} {h:g}">',

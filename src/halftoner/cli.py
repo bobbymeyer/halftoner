@@ -44,6 +44,7 @@ def cmd_new(args) -> int:
         source=source,
         seed=args.seed,
         screen={"ruling_lpi": args.ruling} if args.ruling else None,
+        underbase=args.underbase,
     )
     job.save(args.out)
     print(f"wrote {args.out}")
@@ -123,6 +124,8 @@ def build_parser() -> argparse.ArgumentParser:
     n.add_argument("--overprint", type=_pair, action="append", metavar="A+B=#HEX")
     n.add_argument("--ruling", type=float, help="override the profile's ruling (lpi)")
     n.add_argument("--seed", type=int, default=0)
+    n.add_argument("--underbase", action="store_true",
+                   help="print a choked underbase first, from the profile's underbase settings (dark garments)")
     n.set_defaults(fn=cmd_new)
 
     r = sub.add_parser("report", help="print the report and what a target would do")
