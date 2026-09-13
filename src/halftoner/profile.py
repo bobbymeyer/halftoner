@@ -92,6 +92,10 @@ class PressProfile:
     # --- builders -------------------------------------------------------------------
 
     def make_screen(self, **overrides) -> Screen:
+        if isinstance(overrides.get("grid"), dict):
+            from .serialize import grid_from_dict
+
+            overrides["grid"] = grid_from_dict(overrides["grid"])
         return Screen(
             ruling_lpi=overrides.pop("ruling_lpi", self.ruling_lpi),
             shape=CellFill.from_spec(overrides.pop("shape", self.shape)),

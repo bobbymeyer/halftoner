@@ -11,7 +11,8 @@
     "max_dot": 0.85,
     "min_printable_mm": 0.1,
     "compression": [0.1, 0.85],
-    "output_condition": "IFRA26"
+    "output_condition": "IFRA26",
+    "tac": 2.4
   },
   "screen": {"ruling_lpi": 65, "shape": "round", "angles": [45, 75, 15, 0]},
   "press": {"misregistration": 0.3, "drift": 0.5, "slur": 0.04, "press_angle": 90, "density_variance": 0.06, "trap_gap": 0.0, "extra_gain": 0.0},

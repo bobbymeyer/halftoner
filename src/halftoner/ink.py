@@ -30,6 +30,7 @@ class Ink:
     shape: CellFill | None = None  # per-ink dot shape; falls back to the screen's
     ruling_lpi: float | None = None  # per-ink ruling; falls back to the screen's
     coverage: float | None = None  # target mean printed coverage over the canvas, e.g. a text block's gray
+    process: str | None = None  # "c" | "m" | "y" | "k" marks a process ink: PDF writes it as DeviceCMYK
 
     @property
     def transmittance(self) -> np.ndarray:

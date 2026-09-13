@@ -32,18 +32,42 @@ def cmd_profiles(args) -> int:
     return 0
 
 
+def _screen_overrides(args) -> dict | None:
+    screen = {}
+    if args.ruling:
+        screen["ruling_lpi"] = args.ruling
+    if args.grid:
+        repeat = _floats(args.grid)
+        origin = _floats(args.grid_origin) if args.grid_origin else [0.0, 0.0]
+        screen["grid"] = {"repeat_mm": repeat[0], "repeat_y_mm": repeat[1] if len(repeat) > 1 else None,
+                          "origin": origin}
+    return screen or None
+
+
 def cmd_new(args) -> int:
     profile = PressProfile.load(args.profile)
     w, h = (float(v) for v in args.size.lower().split("x"))
     canvas = Canvas.of(w, h, unit=args.unit, dpi=args.dpi, bleed=args.bleed)
     source = Image(Path(args.image).resolve()) if args.image else Constant(args.tint)
     overprint = {tuple(k.split("+")): v for k, v in (args.overprint or [])}
+    if args.process:
+        if not args.image:
+            raise SystemExit("--process needs --image")
+        from .process import CmykSeparation, process_inks
+
+        separation = CmykSeparation(tac=profile.substrate.tac or 3.0)
+        inks = process_inks(Path(args.image).resolve(), separation, profile=profile, overprint=overprint)
+        source = None
+    elif args.ink:
+        inks = profile.inks(*args.ink, overprint=overprint)
+    else:
+        raise SystemExit("give one or more --ink NAME=#HEX, or --process with --image")
     job = profile.recipe(
         canvas=canvas,
-        inks=profile.inks(*args.ink, overprint=overprint),
+        inks=inks,
         source=source,
         seed=args.seed,
-        screen={"ruling_lpi": args.ruling} if args.ruling else None,
+        screen=_screen_overrides(args),
         underbase=args.underbase,
     )
     job.save(args.out)
@@ -70,6 +94,7 @@ def cmd_render(args) -> int:
             args.target, args.out, stem=Path(args.recipe).stem, force=args.force,
             supersample=args.supersample, film_dpi=args.film_dpi, wedge=not args.no_wedge,
             output_condition=args.output_condition, pdf_mode=args.pdf_mode, bitmap_dpi=args.bitmap_dpi,
+            size=args.size, alpha=None if args.alpha in (None, "none") else args.alpha, bands=args.bands,
         )
     except ConstraintRefused as e:
         print(e, file=sys.stderr)
@@ -146,9 +171,13 @@ def build_parser() -> argparse.ArgumentParser:
     n.add_argument("--unit", default="mm", choices=["mm", "cm", "in"])
     n.add_argument("--dpi", type=float, default=300)
     n.add_argument("--bleed", type=float, default=0)
-    n.add_argument("--ink", type=_pair, action="append", required=True, metavar="NAME=#HEX")
+    n.add_argument("--ink", type=_pair, action="append", metavar="NAME=#HEX")
+    n.add_argument("--process", action="store_true",
+                   help="separate --image into black, cyan, magenta and yellow plates (instead of --ink)")
     n.add_argument("--overprint", type=_pair, action="append", metavar="A+B=#HEX")
     n.add_argument("--ruling", type=float, help="override the profile's ruling (lpi)")
+    n.add_argument("--grid", metavar="REPEAT[,REPEAT_Y]", help="lock screens to a layout grid repeat (module + gutter, mm)")
+    n.add_argument("--grid-origin", metavar="X,Y", help="where the layout grid starts, mm")
     n.add_argument("--seed", type=int, default=0)
     n.add_argument("--underbase", action="store_true",
                    help="print a choked underbase first, from the profile's underbase settings (dark garments)")
@@ -171,6 +200,10 @@ def build_parser() -> argparse.ArgumentParser:
     d.add_argument("--pdf-mode", choices=["vector", "bitmap"], default="vector",
                    help="vector dots, or 1-bit image masks per separation (for large or fine-ruled jobs)")
     d.add_argument("--bitmap-dpi", type=int, default=2400, help="image mask resolution for --pdf-mode bitmap")
+    d.add_argument("--size", help="pod: a size band name, or 'all' for a file per band")
+    d.add_argument("--bands", help="pod: a size bands JSON file (default: the bundled standard sizes)")
+    d.add_argument("--alpha", choices=["hard", "soft", "none"],
+                   help="transparent background where no ink prints (pod default: hard; screen default: none)")
     d.set_defaults(fn=cmd_render)
 
     m = sub.add_parser("measure", help="measure a scan into a report and a draft press profile")

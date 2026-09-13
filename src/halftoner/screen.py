@@ -6,6 +6,7 @@ and report all read the same plate, so what's reported is what's drawn.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -14,12 +15,63 @@ from .cellfill import CellFill, Round
 from .canvas import MM_PER_INCH
 
 
+def _rational_angles(max_ratio: int) -> list[tuple[float, int, int]]:
+    """(degrees, p, q) for every screen angle with tan = q/p in lowest terms, p, q <= max_ratio, in [0, 90)."""
+    out = [(0.0, 1, 0)]
+    for p in range(1, max_ratio + 1):
+        for q in range(1, max_ratio + 1):
+            if math.gcd(p, q) == 1:
+                out.append((math.degrees(math.atan2(q, p)), p, q))
+    return out
+
+
+@dataclass(frozen=True)
+class GridLock:
+    ruling_lpi: float
+    angle_deg: float
+    p: int
+    q: int
+    periods: int  # the dot pattern repeats this many times across one module
+    period_mm: float
+    rows_error: float  # repeat_y / period minus its nearest whole number; 0 when rows lock too
+
+
+@dataclass(frozen=True)
+class ModuleGrid:
+    """A layout grid's repeat (module plus gutter, mm). Screens locked to it repeat exactly per module.
+
+    A square lattice turned to an angle with tan = q/p repeats every s * sqrt(p^2 + q^2)
+    along both page axes. Snapping each ink's angle to the nearest such rational angle,
+    and its pitch so a whole number of those periods spans the repeat, puts an identical
+    dot arrangement in every module.
+    """
+
+    repeat_mm: float
+    repeat_y_mm: float | None = None
+    origin: tuple[float, float] = (0.0, 0.0)
+    max_ratio: int = 5  # largest p or q allowed in tan(angle) = q/p
+
+    def lock(self, target_lpi: float, angle_deg: float, at_most: bool = False) -> GridLock:
+        """Nearest grid-locked ruling and angle; `at_most` never exceeds `target_lpi`."""
+        a = angle_deg % 90
+        rational, p, q = min(_rational_angles(self.max_ratio),
+                             key=lambda r: (abs((r[0] - a + 45) % 90 - 45), r[1] ** 2 + r[2] ** 2))
+        snapped = angle_deg + ((rational - a + 45) % 90 - 45)  # keep the requested quadrant (elliptical dots care)
+        root = math.hypot(p, q)
+        exact = self.repeat_mm / (MM_PER_INCH / target_lpi * root)
+        periods = max(1, math.floor(exact + 1e-9) if at_most else round(exact))
+        period = self.repeat_mm / periods
+        rows = (self.repeat_y_mm or self.repeat_mm) / period
+        return GridLock(MM_PER_INCH * root / period, snapped, p, q, periods, period, rows - round(rows))
+
+
 @dataclass
 class Screen:
     ruling_lpi: float
     shape: CellFill = field(default_factory=Round)
     origin: tuple[float, float] = (0.0, 0.0)  # mm; canvas corner, not the image
     phase: tuple[float, float] = (0.0, 0.0)  # fraction of a cell
+    grid: ModuleGrid | None = None  # lock rulings and angles to a layout grid; its origin replaces `origin`
 
 
 @dataclass

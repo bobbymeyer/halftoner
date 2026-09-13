@@ -11,7 +11,8 @@
     "max_dot": 0.9,
     "min_printable_mm": 0.06,
     "compression": null,
-    "output_condition": "FOGRA29"
+    "output_condition": "FOGRA29",
+    "tac": 3.0
   },
   "screen": {"ruling_lpi": 85, "shape": {"shape": "elliptical", "ratio": 1.4}, "angles": [45, 75, 15, 0]},
   "press": {"misregistration": 0.15, "drift": 0.35, "slur": 0.02, "press_angle": 90, "density_variance": 0.04, "trap_gap": 0.0, "extra_gain": 0.0},

@@ -12,12 +12,18 @@ from dataclasses import dataclass, field, replace
 
 from .ink import InkSet
 
+_REPORT = {"coverage": "report", "grid": "report"}
 POLICIES: dict[str, dict[str, str]] = {
-    "screen": {"ruling": "report", "min_dot": "report", "sampling": "report", "angle": "report", "geometry": "ignore", "coverage": "report"},
-    "svg": {"ruling": "report", "min_dot": "report", "sampling": "report", "angle": "report", "geometry": "warn", "coverage": "report"},
-    "pod": {"ruling": "cap", "min_dot": "report", "sampling": "report", "angle": "report", "geometry": "ignore", "coverage": "report"},
-    "film": {"ruling": "refuse", "min_dot": "refuse", "sampling": "refuse", "angle": "refuse", "geometry": "ignore", "coverage": "report"},
-    "pdf": {"ruling": "refuse", "min_dot": "refuse", "sampling": "refuse", "angle": "refuse", "geometry": "ignore", "coverage": "report"},
+    "screen": {"ruling": "report", "min_dot": "report", "sampling": "report", "angle": "report", "geometry": "ignore",
+               "tac": "report", **_REPORT},
+    "svg": {"ruling": "report", "min_dot": "report", "sampling": "report", "angle": "report", "geometry": "warn",
+            "tac": "report", **_REPORT},
+    "pod": {"ruling": "cap", "min_dot": "report", "sampling": "report", "angle": "report", "geometry": "ignore",
+            "tac": "report", **_REPORT},
+    "film": {"ruling": "refuse", "min_dot": "refuse", "sampling": "refuse", "angle": "refuse", "geometry": "ignore",
+             "tac": "refuse", **_REPORT},
+    "pdf": {"ruling": "refuse", "min_dot": "refuse", "sampling": "refuse", "angle": "refuse", "geometry": "ignore",
+            "tac": "refuse", **_REPORT},
 }
 TARGETS = tuple(POLICIES)
 
@@ -51,22 +57,31 @@ class Outcome:
         return "\n".join(out)
 
 
-def cap_ruling(recipe):
-    ceiling = recipe.substrate.ruling_ceiling_lpi
+def cap_ruling(recipe, ceiling: float | None = None):
+    """(recipe with every ruling at or under `ceiling`, {ink: (was, now)}). Defaults to the substrate's."""
+    ceiling = recipe.substrate.ruling_ceiling_lpi if ceiling is None else ceiling
     capped, inks = {}, []
     for ink in recipe.inks:
         lpi = recipe.ruling_for(ink)
         if lpi > ceiling:
-            capped[ink.name] = (lpi, ceiling)
-            ink = replace(ink, ruling_lpi=ceiling)
+            new = _capped_lpi(recipe, ink, ceiling)
+            capped[ink.name] = (lpi, new)
+            ink = replace(ink, ruling_lpi=new)
         inks.append(ink)
     overprint = {tuple(k): v for k, v in recipe.inks.overprint.items()}
     job = replace(recipe, inks=InkSet(*inks, overprint=overprint))
     ub = recipe.underbase
     if ub is not None and recipe.ruling_for(ub.ink) > ceiling:
-        capped[ub.ink.name] = (recipe.ruling_for(ub.ink), ceiling)
-        job = replace(job, underbase=replace(ub, ink=replace(ub.ink, ruling_lpi=ceiling)))
+        new = _capped_lpi(recipe, ub.ink, ceiling)
+        capped[ub.ink.name] = (recipe.ruling_for(ub.ink), new)
+        job = replace(job, underbase=replace(ub, ink=replace(ub.ink, ruling_lpi=new)))
     return job, capped
+
+
+def _capped_lpi(recipe, ink, ceiling: float) -> float:
+    """The ceiling, or on a grid-locked screen the finest locked ruling at or under it."""
+    grid = recipe.screen.grid
+    return grid.lock(ceiling, ink.angle, at_most=True).ruling_lpi if grid else ceiling
 
 
 def apply_policy(recipe, target: str, force: bool = False):

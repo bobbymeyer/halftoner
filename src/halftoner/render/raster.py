@@ -12,6 +12,10 @@ Press artifacts, when on:
   trap gap         region cuts are choked by half the gap, opening paper where regions meet
   density variance each present ink's density is scaled by its low-frequency field
                    (Beer-Lambert on top of the primary, so chosen overprints keep their color)
+
+Alpha (print-on-demand): instead of painting the substrate, leave it transparent.
+Inks are composited over white, the color is the mean of the inked subpixels, and
+alpha is the inked fraction ("soft") or that fraction thresholded at half ("hard").
 """
 
 from __future__ import annotations
@@ -21,13 +25,19 @@ from PIL import Image as PILImage
 
 from ..color import linear_to_srgb
 
+ALPHA_MODES = (None, "hard", "soft")
 
-def composite(recipe, supersample: int = 4, artifacts: bool = True, strip_rows: int = 48) -> np.ndarray:
+
+def composite(recipe, supersample: int = 4, artifacts: bool = True, strip_rows: int = 48,
+              alpha: str | None = None) -> np.ndarray:
+    if alpha not in ALPHA_MODES:
+        raise ValueError(f"alpha must be one of {ALPHA_MODES}")
     canvas, press = recipe.canvas, recipe.press
     plates = recipe.plates()
     if len(plates) > 8:
         raise ValueError("at most 8 inks")
-    primaries = recipe.print_inks.primaries(recipe.substrate.paper).astype(np.float32)
+    base = "#FFFFFF" if alpha else recipe.substrate.paper  # transparent jobs don't bake the substrate in
+    primaries = recipe.print_inks.primaries(base).astype(np.float32)
     offsets = press.offsets(recipe.print_inks.inks, canvas) if artifacts else None
     slur = press.slur_vector() if artifacts and press.slur > 0 else None
     choke = press.trap_gap / 2 if artifacts else 0.0
@@ -42,7 +52,7 @@ def composite(recipe, supersample: int = 4, artifacts: bool = True, strip_rows: 
     ss = supersample
     sub_mm = 1.0 / (canvas.px_per_mm * ss)
     xs = (np.arange(W * ss) + 0.5) * sub_mm
-    out = np.empty((H, W, 3), dtype=np.uint8)
+    out = np.empty((H, W, 4 if alpha else 3), dtype=np.uint8)
 
     for r0 in range(0, H, strip_rows):
         r1 = min(H, r0 + strip_rows)
@@ -66,8 +76,18 @@ def composite(recipe, supersample: int = 4, artifacts: bool = True, strip_rows: 
             sub = paper * np.power(10.0, -d, dtype=np.float32)
         else:
             sub = primaries[mask]
-        lin = sub.reshape(r1 - r0, ss, W, ss, 3).mean(axis=(1, 3))
-        out[r0:r1] = np.round(linear_to_srgb(lin) * 255).astype(np.uint8)
+
+        shape = (r1 - r0, ss, W, ss)
+        if alpha:
+            inked = (mask != 0).astype(np.float32)
+            count = inked.reshape(shape).sum(axis=(1, 3))
+            color = (sub * inked[..., None]).reshape(*shape, 3).sum(axis=(1, 3)) / np.maximum(count, 1)[..., None]
+            fraction = count / (ss * ss)
+            out[r0:r1, :, :3] = np.round(linear_to_srgb(np.where(count[..., None] > 0, color, 1.0)) * 255)
+            out[r0:r1, :, 3] = np.where(fraction >= 0.5, 255, 0) if alpha == "hard" else np.round(fraction * 255)
+        else:
+            lin = sub.reshape(*shape, 3).mean(axis=(1, 3))
+            out[r0:r1] = np.round(linear_to_srgb(lin) * 255).astype(np.uint8)
     return out
 
 
@@ -85,4 +105,4 @@ def _hit(plate, thresholds, x, y, choke: float = 0.0):
 
 
 def save_png(pixels: np.ndarray, path, dpi: float) -> None:
-    PILImage.fromarray(pixels, mode="RGB").save(path, dpi=(dpi, dpi))
+    PILImage.fromarray(pixels).save(path, dpi=(dpi, dpi))

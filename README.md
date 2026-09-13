@@ -11,6 +11,9 @@ uv run halftoner new job.json --profile newsprint_nominal --image photo.jpg --si
     --ink warm_red=#D6422B --ink prussian=#1F3A63 --overprint warm_red+prussian=#3A2036 --seed 7
 uv run halftoner report job.json --target film      # report + what the film target would do
 uv run halftoner render job.json --target screen    # screen | svg | pod | film | pdf  [--force]
+uv run halftoner render job.json --target pod --size all          # a file per standard size band
+uv run halftoner new cmyk.json --profile uncoated_offset_nominal --image photo.jpg --size 180x240 --process
+uv run halftoner new grid.json --profile newsprint_nominal --image photo.jpg --size 180x240 --ink k=#111 --grid 20
 
 uv run python examples/two_ink_poster.py [photo.jpg]  # the Python surface
 
@@ -39,7 +42,7 @@ Report     sampling ratio, dot range, min dot diameter, coverage, palette, check
 Policy     per target: report | warn | cap | refuse (forceable)
   ▼
 Targets    screen  supersampled, press artifacts, ink bitmask → Neugebauer primaries → linear box average → sRGB
-           pod     screen, with ruling capped at the substrate ceiling
+           pod     screen at each size band, ruling capped, RGBA with hard alpha
            svg     one <path> per ink in mm; arcs below the join, traced polygons above
            film    per ink, 1-bit, no AA, no artifacts, mirrored; crop marks, reg targets, label, step wedge
            pdf     PDF/X-1a:2001: one overprinting spot separation per ink, pre-screened vector dots,
@@ -68,6 +71,24 @@ Targets    screen  supersampled, press artifacts, ink bitmask → Neugebauer pri
 `gain` is a number (TVI at 50%) or measured `[[nominal, printed], ...]` pairs. Inks take angles from the profile's angle set in print order. Anything can be overridden per recipe: `profile.recipe(..., press={"misregistration": 0.5})`.
 
 The bundled profiles are labeled `NOMINAL`. A profile named for a tradition should come from measured scans (see `_template_measured.json.example`): ruling counted against trim size, angles read off a rotated crop, overprints sampled, plate walk measured. The film target's step wedge closes the gain loop: print it, measure the patches, feed the pairs back as `gain`.
+
+## Grid-locked screens
+
+`Screen(grid=ModuleGrid(repeat_mm, repeat_y_mm=None, origin=(x, y)))` (or `new --grid 20`) locks every plate to a layout grid's repeat (module plus gutter). A square lattice turned to an angle with tan = q/p repeats every pitch x sqrt(p² + q²) along both page axes, so each ink's angle snaps to the nearest such rational angle (0°, 14.04°, 18.43°, 26.57°, 45°, …, with p, q ≤ `max_ratio`) and its ruling snaps so a whole number of those periods spans the repeat. Every module then carries an identical dot arrangement, and the screen composes with the grid rather than sitting on top of it. The requested quadrant is kept, so elliptical dots stay oriented. The report lists each ink's target and locked ruling and angle, and flags a vertical repeat that isn't a whole number of periods. Capping keeps rulings locked and under the ceiling.
+
+## Print on demand
+
+The recipe is the artifact; size is an input to a run. `Recipe.at_size(w, h, dpi)` renders the same design at another size: art geometry scales (regions, gradients, image boxes, function coordinates, screen origin, layout grid) while press physics doesn't (ruling in lpi, misregistration, slur, trap gap, choke, bleed), so a bigger print carries more dots, not bigger ones.
+
+`--target pod --size NAME|all` matches the design's aspect to standard print sizes (`pod_bands.json`: 2:3, 3:4, 4:5, 5:7, 1:1, 11:14, in either orientation) and writes a file per band, each rendered at its size and resolution with its ruling capped coarse (`max_lpi`, default dpi / 5, so every cell spans five pixels). `--bands file.json` supplies your own.
+
+PoD files are RGBA with **hard alpha**: nothing is painted where no ink prints, inks are composited over white so the stock isn't baked in, and alpha is fully on or off (the inked fraction thresholded at half), which prints cleanly on transfers and apparel. `--alpha soft` keeps the fraction; `--alpha none` paints the substrate.
+
+## CMYK process
+
+`process_inks(photo, CmykSeparation(gcr, black_start, tac))` (or `new --process`) separates a photo into black, cyan, magenta and yellow plates, printed KCMY at 45/15/75/0°. It's a device separation: complementary CMY from sRGB, gray component replacement (black takes `gcr` of the shared gray once it passes `black_start`), undercolor removal, and a total-ink limit that holds black and scales CMY. For a separation matched to a printing condition, separate in an ICC workflow and feed the channels in as area sources.
+
+Substrates carry `tac` (uncoated 300%, newsprint 240%); the report sums every plate at common points and film and PDF refuse past it. In PDF/X, process inks are DeviceCMYK (`1 0 0 0 k` with overprint mode 1, so the plates don't knock each other out) and any spot inks alongside stay Separations.
 
 ## Underbase (dark garments)
 
@@ -134,6 +155,8 @@ Validated against renders with known parameters (`tests/test_measure.py`): rulin
 | Ink angle separation ≥ 15° | report | report | report | refuse | refuse |
 | Geometry count | – | warn | – | – | – |
 | Coverage target reached | report | report | report | report | report |
+| Total area coverage ≤ substrate TAC | report | report | report | refuse | refuse |
+| Grid rows lock (non-square repeat) | report | report | report | report | report |
 
 ## PDF/X
 
@@ -170,7 +193,10 @@ Built to the standard and checked structurally and by rendering (`tests/test_pdf
 | 24 | PDF/X export with separations and overprint flags | done (PDF/X-1a:2001; not yet preflighted) |
 | 19 | Underbase generation with choke, separately gain-compensated | done |
 | 20 | Garment color as the compositing base, tone limits relative to it | done: garment is the paper, opaque inks cover it, tone maps between base and solid as printed |
-| 21, 23 | Grid-commensurate ruling, FM screening | not yet |
+| 21 | Grid-commensurate ruling | done: rational angles, a whole number of repeats per module |
+| 23 | Hybrid AM/FM and blue-noise FM | not yet |
+| — | Print-on-demand size bands and hard alpha | done |
+| — | CMYK process separations | done: device separation with GCR and TAC; DeviceCMYK in PDF/X |
 | — | resvg rasterizing | not planned: see below |
 
 **Why not resvg.** The spec asks for compositing in ink space, never RGB layers with multiply. resvg would rasterize the SVG's multiply-blend preview, which is exactly that. The screen and pod targets already composite separations properly (overprint overrides, opacity, press artifacts), and large vector jobs belong in `--target pdf --pdf-mode bitmap`. SVG stays a preview and an editable vector export.

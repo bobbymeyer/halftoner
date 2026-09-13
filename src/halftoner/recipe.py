@@ -8,6 +8,7 @@ tells you where the line is.
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
+from itertools import combinations
 
 import numpy as np
 
@@ -58,6 +59,7 @@ class Report:
     checks: list[Check] = field(default_factory=list)
     profile: str | None = None
     tones: list[str] = field(default_factory=list)
+    grid: list[str] = field(default_factory=list)
 
     def __str__(self) -> str:
         c, s = self.canvas, self.substrate
@@ -83,6 +85,8 @@ class Report:
         for names, hexc, overridden in self.palette:
             label = " + ".join(names) if names else "paper"
             out.append(f"  {hexc}  {label}{'  (chosen)' if overridden else ''}")
+        if self.grid:
+            out += ["", "grid lock (target -> locked)"] + [f"  {g}" for g in self.grid]
         if self.tones:
             out += ["", "tone range (luminance: bare base -> solid as printed)"] + [f"  {t}" for t in self.tones]
         out += ["", "constraints (reported, not enforced)"]
@@ -131,8 +135,18 @@ class Recipe:
             self.press.seed = self.seed
         self._plates: list[Plate] | None = None
 
+    def grid_lock(self, ink):
+        """How this ink's screen locks to the layout grid, or None without one."""
+        grid = self.screen.grid
+        return None if grid is None else grid.lock(ink.ruling_lpi or self.screen.ruling_lpi, ink.angle)
+
     def ruling_for(self, ink) -> float:
-        return ink.ruling_lpi or self.screen.ruling_lpi
+        lock = self.grid_lock(ink)
+        return lock.ruling_lpi if lock else (ink.ruling_lpi or self.screen.ruling_lpi)
+
+    def angle_for(self, ink) -> float:
+        lock = self.grid_lock(ink)
+        return lock.angle_deg if lock else ink.angle
 
     def source_for(self, ink):
         src = ink.source if ink.source is not None else self.source
@@ -147,6 +161,32 @@ class Recipe:
             return self.inks
         overprint = {tuple(k): v for k, v in self.inks.overprint.items()}
         return InkSet(self.underbase.ink, *self.inks.inks, overprint=overprint)
+
+    def at_size(self, width_mm: float, height_mm: float | None = None, dpi: float | None = None,
+                tolerance: float = 0.02) -> Recipe:
+        """The same design at another physical size.
+
+        Art geometry scales: regions, gradients, image boxes, function coordinates, the
+        screen origin and the layout grid. Press physics doesn't: ruling (lpi),
+        misregistration, slur, trap gap, choke and bleed stay in real millimetres, so a
+        bigger print carries more dots, not bigger ones.
+        """
+        from .sources import scale_source
+
+        cv = self.canvas
+        s = width_mm / cv.width_mm
+        if height_mm is not None and abs(height_mm / cv.height_mm - s) > tolerance * s:
+            raise ValueError(f"{width_mm:g} x {height_mm:g} mm doesn't match the design's "
+                             f"{cv.width_mm:g} x {cv.height_mm:g} mm aspect")
+        canvas = replace(cv, width_mm=width_mm, height_mm=height_mm or cv.height_mm * s, dpi=dpi or cv.dpi)
+        overprint = {tuple(k): v for k, v in self.inks.overprint.items()}
+        inks = InkSet(*(replace(i, source=scale_source(i.source, s)) for i in self.inks.inks), overprint=overprint)
+        grid = self.screen.grid
+        if grid is not None:
+            grid = replace(grid, repeat_mm=grid.repeat_mm * s, origin=(grid.origin[0] * s, grid.origin[1] * s),
+                           repeat_y_mm=grid.repeat_y_mm * s if grid.repeat_y_mm else None)
+        screen = replace(self.screen, origin=(self.screen.origin[0] * s, self.screen.origin[1] * s), grid=grid)
+        return replace(self, canvas=canvas, inks=inks, screen=screen, source=scale_source(self.source, s))
 
     def is_underbase(self, ink) -> bool:
         return self.underbase is not None and ink is self.underbase.ink
@@ -176,9 +216,11 @@ class Recipe:
         pitch = lpi_to_pitch_mm(self.ruling_for(ink))
         # Cells out past the bleed (film and PDF print it) plus however far the press can move them.
         margin = press.misregistration * (1 + press.drift) * 2 + press.slur + pitch + cv.bleed_mm
-        i0, j0, ni, nj = cell_range(cv, pitch, ink.angle, sc.origin, sc.phase, margin)
+        angle = self.angle_for(ink)
+        origin = sc.grid.origin if sc.grid else sc.origin
+        i0, j0, ni, nj = cell_range(cv, pitch, angle, origin, sc.phase, margin)
         empty = np.zeros((nj, ni))
-        return Plate(ink, ink.shape or sc.shape, pitch, ink.angle, sc.origin, sc.phase, i0, j0, empty, empty)
+        return Plate(ink, ink.shape or sc.shape, pitch, angle, origin, sc.phase, i0, j0, empty, empty)
 
     def _build_plate(self, ink) -> Plate:
         cv, press = self.canvas, self.press
@@ -239,6 +281,19 @@ class Recipe:
             out.append((coverage, presence, clip_of(layer)))
         return out
 
+    def _area_at(self, plate, X, Y) -> np.ndarray:
+        """A plate's nominal area at arbitrary points: its own tone chain, region cuts exact."""
+        ink = plate.ink
+        src = self.source_for(ink)
+        tone = self.tone_range_for(ink)
+        best = np.zeros(np.shape(X))
+        for layer in src.sources if isinstance(src, Layered) else [src]:
+            area = self.transfer.plate_area(layer.sample(X, Y, plate.pitch_mm, self.canvas), layer.kind, ink,
+                                            self.substrate, plate.bias, tone)
+            clip = clip_of(layer)
+            best = np.maximum(best, area if clip is None else np.where(clip(X, Y), area, 0.0))
+        return best
+
     def _build_underbase(self, colors: list[Plate]) -> Plate:
         ub = self.underbase
         plate = self._grid(ub.ink)
@@ -267,14 +322,16 @@ class Recipe:
 
     # --- outputs --------------------------------------------------------------------
 
-    def render_png(self, path, supersample: int = 4, artifacts: bool = True) -> None:
+    def render_png(self, path, supersample: int = 4, artifacts: bool = True, alpha: str | None = None) -> None:
+        """alpha: None paints the substrate; "hard" or "soft" leaves it transparent (inks over white)."""
         from .render.raster import composite, save_png
 
-        save_png(composite(self, supersample=supersample, artifacts=artifacts), path, self.canvas.dpi)
+        save_png(composite(self, supersample=supersample, artifacts=artifacts, alpha=alpha), path, self.canvas.dpi)
 
     def render(self, target: str, out_dir=".", stem: str = "job", force: bool = False,
                supersample: int = 4, film_dpi: float = 1200, wedge: bool = True,
-               output_condition: str | None = None, pdf_mode: str = "vector", bitmap_dpi: int = 2400):
+               output_condition: str | None = None, pdf_mode: str = "vector", bitmap_dpi: int = 2400,
+               size: str | None = None, alpha: str | None = None, bands=None):
         """Render through a target's policy. Returns an Outcome; raises ConstraintRefused unless forced."""
         from pathlib import Path
 
@@ -283,9 +340,15 @@ class Recipe:
         job, outcome = apply_policy(self, target, force=force)
         out = Path(out_dir)
         out.mkdir(parents=True, exist_ok=True)
-        if target in ("screen", "pod"):
+        if target == "pod" and (size is not None or bands is not None):
+            from .pod import render_bands
+
+            outcome.paths, band_caps = render_bands(job, out, stem, size=size or "all", bands=bands,
+                                                    alpha=alpha or "hard", supersample=supersample)
+            outcome.capped.update(band_caps)
+        elif target in ("screen", "pod"):
             path = out / f"{stem}{'_pod' if target == 'pod' else ''}.png"
-            job.render_png(path, supersample=supersample)
+            job.render_png(path, supersample=supersample, alpha=alpha if target == "screen" else (alpha or "hard"))
             outcome.paths = [path]
         elif target == "svg":
             path = out / f"{stem}.svg"
@@ -334,7 +397,7 @@ class Recipe:
                 tones.append(f"{ink.name[:12]:12} {tr.base:.3f} -> {tr.solid:.3f}  {mode} ({meaning})")
             rows.append(
                 InkReport(
-                    ink.name, self.ruling_for(ink), ink.angle, plate.shape.name, plate.shape.join_points(), ratio,
+                    ink.name, self.ruling_for(ink), self.angle_for(ink), plate.shape.name, plate.shape.join_points(), ratio,
                     min_dot, float(partial.max()) if partial.size else None, min_mm,
                     float(a.mean()) if a.size else 0.0, float(p.mean()) if p.size else 0.0, dots,
                 )
@@ -354,13 +417,38 @@ class Recipe:
                                     f"target {ink.coverage:.1%}, got {got:.1%} (bias {plate.bias:.2f})", "coverage"))
 
         inks = self.print_inks
-        for a, b, sep in inks.angle_separations():
-            ia = next(i for i in inks if i.name == a)
-            ib = next(i for i in inks if i.name == b)
-            if self.ruling_for(ia) == self.ruling_for(ib):
+        for ia, ib in combinations(inks, 2):
+            a, b = ia.name, ib.name
+            d = abs(self.angle_for(ia) - self.angle_for(ib)) % 90
+            sep = min(d, 90 - d)
+            ra, rb = self.ruling_for(ia), self.ruling_for(ib)
+            if abs(ra - rb) <= 0.1 * max(ra, rb):  # near-equal rulings beat against each other
                 checks.append(Check(f"{a}/{b} angle separation", sep >= MIN_ANGLE_SEPARATION,
                                     f"{sep:.1f} deg (moire below {MIN_ANGLE_SEPARATION:g})", "angle"))
         checks.append(Check("geometry count", total_dots <= GEOMETRY_WARN,
                             f"{total_dots:,} dots (browsers struggle past {GEOMETRY_WARN:,}; "
                             "for big jobs use the screen target or pdf bitmap mode)", "geometry"))
-        return Report(cv, sub, rows, inks.palette(sub.paper), checks, self.profile, tones)
+        if sub.tac:
+            # Every ink's plate at the same points, summed: the heaviest ink film anywhere on the sheet.
+            step = max(0.5, max(cv.width_mm, cv.height_mm) / 400)
+            X, Y = np.meshgrid(np.arange(step / 2, cv.width_mm, step), np.arange(step / 2, cv.height_mm, step))
+            total = sum((self._area_at(p, X, Y) for p in self.plates() if not self.is_underbase(p.ink)),
+                        np.zeros(X.shape))
+            worst = float(total.max())
+            checks.append(Check("total area coverage", worst <= sub.tac + 1e-6,
+                                f"max {worst:.0%} vs {sub.tac:.0%} limit", "tac"))
+
+        grid_lines = []
+        grid = self.screen.grid
+        if grid is not None:
+            for ink in inks:
+                lock = self.grid_lock(ink)
+                target = ink.ruling_lpi or self.screen.ruling_lpi
+                grid_lines.append(
+                    f"{ink.name[:12]:12} {target:g} lpi @ {ink.angle:g} deg -> {lock.ruling_lpi:.2f} lpi @ "
+                    f"{lock.angle_deg:.2f} deg (tan {lock.q}/{lock.p}), {lock.periods} repeats per {grid.repeat_mm:g} mm")
+                if grid.repeat_y_mm:
+                    checks.append(Check(f"{ink.name} grid rows lock", abs(lock.rows_error) < 0.01,
+                                        f"{grid.repeat_y_mm:g} mm is {lock.rows_error:+.2f} period off whole repeats",
+                                        "grid"))
+        return Report(cv, sub, rows, inks.palette(sub.paper), checks, self.profile, tones, grid_lines)

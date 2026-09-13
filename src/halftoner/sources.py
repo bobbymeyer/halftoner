@@ -152,6 +152,9 @@ class Rect:
     def contains(self, x, y):
         return (x >= self.x) & (x < self.x + self.w) & (y >= self.y) & (y < self.y + self.h)
 
+    def scaled(self, s: float) -> Rect:
+        return Rect(self.x * s, self.y * s, self.w * s, self.h * s)
+
     def signed_distance(self, x, y):
         """mm to the edge: positive inside, negative outside."""
         qx = np.abs(np.asarray(x) - (self.x + self.w / 2)) - self.w / 2
@@ -162,6 +165,9 @@ class Rect:
 @dataclass(frozen=True)
 class Polygon:
     points: tuple[tuple[float, float], ...]
+
+    def scaled(self, s: float) -> Polygon:
+        return Polygon(tuple((x * s, y * s) for x, y in self.points))
 
     def contains(self, x, y):
         """Even-odd rule."""
@@ -223,6 +229,34 @@ class Layered(Source):
     def sampling_ratio(self, cell_mm, canvas):
         ratios = [r for s in self.sources if (r := s.sampling_ratio(cell_mm, canvas)) is not None]
         return min(ratios) if ratios else None
+
+
+# --- scaling: the same art at another size ------------------------------------------------
+
+
+def scale_source(src, s: float):
+    """`src` with its canvas geometry scaled by `s` (regions, gradient ends, image boxes, function coordinates)."""
+    import copy
+
+    if src is None or isinstance(src, Constant):
+        return src
+    if isinstance(src, Gradient):
+        p1 = (src.p1[0] * s, src.p1[1] * s) if src.p1 else None
+        return Gradient(src.start, src.end, (src.p0[0] * s, src.p0[1] * s), p1, src.kind)
+    if isinstance(src, Image):
+        out = copy.copy(src)  # keeps the decoded pixels; only the placement changes
+        out.box = tuple(v * s for v in src.box) if src.box else None
+        return out
+    if isinstance(src, Function):
+        fn = src.fn
+        return Function(lambda x, y: fn(x / s, y / s), src.kind)
+    if isinstance(src, Masked):
+        return Masked(scale_source(src.source, s), src.region.scaled(s))
+    if isinstance(src, Layered):
+        return Layered([scale_source(layer, s) for layer in src.sources])
+    if hasattr(src, "scaled"):
+        return src.scaled(s)
+    raise TypeError(f"don't know how to scale a {type(src).__name__} source")
 
 
 # --- clipping: where a plate's ink may land, at full resolution ---------------------------

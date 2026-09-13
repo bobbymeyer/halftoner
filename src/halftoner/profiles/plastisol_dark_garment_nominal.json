@@ -11,7 +11,8 @@
     "max_dot": 0.88,
     "min_printable_mm": 0.15,
     "compression": null,
-    "output_condition": null
+    "output_condition": null,
+    "tac": null
   },
   "screen": {"ruling_lpi": 45, "shape": {"shape": "elliptical", "ratio": 1.2}, "angles": [52.5, 82.5, 7.5, 37.5]},
   "press": {"misregistration": 0.3, "drift": 0.3, "slur": 0.0, "press_angle": 90, "density_variance": 0.05, "trap_gap": 0.0, "extra_gain": 0.0},

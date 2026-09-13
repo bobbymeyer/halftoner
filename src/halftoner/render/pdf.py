@@ -70,6 +70,13 @@ def _separation(name: str, cmyk) -> str:
     return f"[/Separation {_name(name)} /DeviceCMYK << /FunctionType 2 /Domain [0 1] /C0 [0 0 0 0] /C1 [{c1}] /N 1 >>]"
 
 
+def _fill(i: int, ink) -> str:
+    """Fill color for plate i: a process ink in DeviceCMYK (overprint mode 1 keeps the other plates), else its spot."""
+    if ink.process:
+        return " ".join("1" if ch == ink.process else "0" for ch in "cmyk") + " k"
+    return f"/CS{i} cs 1 scn"
+
+
 def _circle_ops(circles: np.ndarray, precision: int) -> list[str]:
     if not len(circles):
         return []
@@ -160,7 +167,7 @@ def write_pdf(recipe, path, output_condition: str | None = None, marks: bool = T
         width_pt, height_pt = width_px / bitmap_dpi * 72, height_px / bitmap_dpi * 72
         x_pt, y_pt = SLUG_MM * k, (media_h - SLUG_MM) * k - height_pt
         for i in range(len(plates)):
-            ops.append(f"q /CS{i} cs 1 scn {width_pt:.4f} 0 0 {height_pt:.4f} {x_pt:.4f} {y_pt:.4f} cm /Im{i} Do Q")
+            ops.append(f"q {_fill(i, plates[i].ink)} {width_pt:.4f} 0 0 {height_pt:.4f} {x_pt:.4f} {y_pt:.4f} cm /Im{i} Do Q")
     # Vector content in canvas millimetres, y down, origin at the trim's top-left corner.
     ops += ["q", f"{k:.6f} 0 0 {-k:.6f} {off * k:.4f} {(media_h - off) * k:.4f} cm"]
     if marks:
@@ -168,7 +175,7 @@ def write_pdf(recipe, path, output_condition: str | None = None, marks: bool = T
     if not bitmap:
         ops.append(f"q {-b:.4f} {-b:.4f} {w + 2 * b:.4f} {h + 2 * b:.4f} re W n")  # nothing past the bleed
         for i, plate in enumerate(plates):
-            ops.append(f"/CS{i} cs 1 scn")
+            ops.append(_fill(i, plate.ink))
             counts[plate.ink.name] = 0
             for part in plate.parts:
                 g = dot_geometry(plate, cv, part, use_printed=False, margin_mm=b, tolerance_mm=tolerance_mm)
@@ -189,12 +196,14 @@ def write_pdf(recipe, path, output_condition: str | None = None, marks: bool = T
     screens = "; ".join(f"{p.ink.name}: {recipe.ruling_for(p.ink):g} lpi at {p.angle_deg:g} deg, {p.shape.name}"
                         for p in plates)
     carried = f"1-bit image masks at {bitmap_dpi} dpi" if bitmap else "vector dots"
-    note = f"Pre-screened spot separations ({carried}), overprinted."
+    note = f"Pre-screened separations ({carried}), overprinted."
+    if any(p.ink.process for p in plates):
+        note += " Process inks are DeviceCMYK; spot inks are Separations."
     if recipe.inks.overprint:
         chosen = ", ".join("+".join(sorted(combo)) + f" {color}" for combo, color in recipe.inks.overprint.items())
         note += f" Chosen overprints ({chosen}) are properties of the real inks and are not encoded; proof on press."
     colorspaces = " ".join(f"/CS{i} {_separation(p.ink.name, cmyk_from_linear(p.ink.transmittance))}"
-                           for i, p in enumerate(plates))
+                           for i, p in enumerate(plates) if not p.ink.process)
     box = lambda x0, y0, x1, y1: f"[{x0 * k:.3f} {y0 * k:.3f} {x1 * k:.3f} {y1 * k:.3f}]"  # noqa: E731
     images = {i: (8 + 2 * i, 9 + 2 * i) for i in range(len(plates))} if bitmap else {}
     xobjects = ("/XObject << " + " ".join(f"/Im{i} {num} 0 R" for i, (num, _) in images.items()) + " >> ") if images else ""

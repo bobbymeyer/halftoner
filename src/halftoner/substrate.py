@@ -27,6 +27,7 @@ class Substrate:
     min_printable_mm: float = 0.0  # smallest dot diameter the stock holds
     compression: tuple[float, float] | None = None  # (lo, hi) tone range the stock can reproduce
     output_condition: str | None = None  # registered characterization for PDF/X, e.g. FOGRA29
+    tac: float | None = None  # total area coverage limit for the stock: 3.0 = 300%
     provenance: str = "unspecified"
     notes: str = ""
 
@@ -50,6 +51,7 @@ class Substrate:
             "min_printable_mm": self.min_printable_mm,
             "compression": list(self.compression) if self.compression else None,
             "output_condition": self.output_condition,
+            "tac": self.tac,
             "provenance": self.provenance, "notes": self.notes,
         }
 

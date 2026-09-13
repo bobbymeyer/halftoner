@@ -59,6 +59,18 @@ def source_to_spec(src, base: Path | None = None):
                 pass
         return {"type": "image", "path": str(path), "fit": src.fit, "channel": src.channel,
                 "box": list(src.box) if src.box else None}
+    from .process import ProcessChannel
+
+    if isinstance(src, ProcessChannel):
+        image = src.image
+        path = Path(image.path).resolve()
+        if base is not None:
+            try:
+                path = path.relative_to(base.resolve())
+            except ValueError:
+                pass
+        return {"type": "process", "path": str(path), "fit": image.fit, "box": list(image.box) if image.box else None,
+                "channel": src.channel, "separation": asdict(src.separation)}
     if isinstance(src, Masked):
         return {"type": "masked", "source": source_to_spec(src.source, base), "region": region_to_spec(src.region)}
     if isinstance(src, Layered):
@@ -84,7 +96,29 @@ def source_from_spec(d, base: Path | None = None):
         return Masked(source_from_spec(d["source"], base), region_from_spec(d["region"]))
     if t == "layered":
         return Layered([source_from_spec(s, base) for s in d["sources"]])
+    if t == "process":
+        from .process import CmykSeparation, ProcessChannel
+
+        path = Path(d["path"])
+        if not path.is_absolute() and base is not None:
+            path = base / path
+        box = tuple(d["box"]) if d.get("box") else None
+        return ProcessChannel(_process_image(path, d.get("fit", "cover"), box), d["channel"],
+                              CmykSeparation(**d.get("separation", {})))
     raise ValueError(f"unknown source type {t!r}")
+
+
+_PROCESS_IMAGES: dict = {}
+
+
+def _process_image(path: Path, fit: str, box):
+    """One decoded photo shared by the four process channels that name it."""
+    from .process import ProcessImage
+
+    key = (str(path.resolve()), path.stat().st_mtime_ns, fit, box)
+    if key not in _PROCESS_IMAGES:
+        _PROCESS_IMAGES[key] = ProcessImage(path, fit, box)
+    return _PROCESS_IMAGES[key]
 
 
 # --- job objects --------------------------------------------------------------------
@@ -96,7 +130,7 @@ def ink_to_dict(ink: Ink, base=None) -> dict:
         "curve": ink.curve.to_spec(), "opacity": ink.opacity,
         "source": source_to_spec(ink.source, base),
         "shape": ink.shape.to_spec() if ink.shape else None,
-        "ruling_lpi": ink.ruling_lpi, "coverage": ink.coverage,
+        "ruling_lpi": ink.ruling_lpi, "coverage": ink.coverage, "process": ink.process,
     }
 
 
@@ -119,6 +153,21 @@ def press_from_dict(d: dict) -> Press:
     if isinstance(d.get("extra_gain"), (list, dict)):
         d["extra_gain"] = Curve.from_spec(d["extra_gain"])
     return Press(**d)
+
+
+def grid_to_dict(grid) -> dict | None:
+    if grid is None:
+        return None
+    return {"repeat_mm": grid.repeat_mm, "repeat_y_mm": grid.repeat_y_mm, "origin": list(grid.origin),
+            "max_ratio": grid.max_ratio}
+
+
+def grid_from_dict(d):
+    from .screen import ModuleGrid
+
+    if not d:
+        return None
+    return ModuleGrid(d["repeat_mm"], d.get("repeat_y_mm"), tuple(d.get("origin", (0.0, 0.0))), d.get("max_ratio", 5))
 
 
 def underbase_to_dict(ub, base=None) -> dict | None:
@@ -150,7 +199,8 @@ def recipe_to_dict(r, base: Path | None = None) -> dict:
         "canvas": asdict(r.canvas),
         "substrate": r.substrate.to_dict(),
         "screen": {"ruling_lpi": r.screen.ruling_lpi, "shape": r.screen.shape.to_spec(),
-                   "origin": list(r.screen.origin), "phase": list(r.screen.phase)},
+                   "origin": list(r.screen.origin), "phase": list(r.screen.phase),
+                   "grid": grid_to_dict(r.screen.grid)},
         "press": press_to_dict(r.press),
         "transfer": asdict(r.transfer),
         "inks": [ink_to_dict(i, base) for i in r.inks],
@@ -170,7 +220,8 @@ def recipe_from_dict(d: dict, base: Path | None = None):
         canvas=Canvas(**d["canvas"]),
         inks=InkSet(*(ink_from_dict(i, base) for i in d["inks"]),
                     overprint={tuple(o["inks"]): o["color"] for o in d.get("overprint", [])}),
-        screen=Screen(sc["ruling_lpi"], CellFill.from_spec(sc["shape"]), tuple(sc["origin"]), tuple(sc["phase"])),
+        screen=Screen(sc["ruling_lpi"], CellFill.from_spec(sc["shape"]), tuple(sc["origin"]), tuple(sc["phase"]),
+                      grid_from_dict(sc.get("grid"))),
         source=source_from_spec(d.get("source"), base),
         substrate=Substrate.from_dict(d["substrate"]),
         press=press_from_dict(d["press"]),

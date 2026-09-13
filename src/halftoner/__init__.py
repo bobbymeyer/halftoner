@@ -7,14 +7,17 @@ from .ink import Ink, InkSet
 from .press import Press
 from .profile import PressProfile
 from .recipe import Recipe, Report
-from .screen import Screen
+from .screen import ModuleGrid, Screen
 from .sources import Constant, Function, Gradient, Image, Layered, Masked, Polygon, Rect
 from .substrate import Substrate
 from .transfer import Transfer, area_to_tone, tone_to_area
 from .underbase import Underbase
+from .pod import SizeBand
+from .process import CmykSeparation, ProcessChannel, process_inks
 
 __all__ = [
     "Canvas", "CellFill", "Constant", "Curve", "Custom", "Diamond", "Elliptical", "Function", "Gradient",
-    "Image", "Ink", "InkSet", "Layered", "Line", "Masked", "Polygon", "Press", "PressProfile", "Recipe", "Rect", "Report",
+    "Image", "Ink", "InkSet", "Layered", "Line", "Masked", "ModuleGrid", "Polygon", "Press", "PressProfile", "Recipe", "Rect", "Report",
     "Round", "Screen", "Square", "Substrate", "Transfer", "Underbase", "area_to_tone", "tone_to_area",
+    "CmykSeparation", "ProcessChannel", "SizeBand", "process_inks",
 ]
