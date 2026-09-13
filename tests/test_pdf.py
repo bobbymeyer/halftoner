@@ -82,7 +82,8 @@ def test_one_overprinting_spot_separation_per_ink(pdf):
 
 
 @pytest.mark.skipif(shutil.which("pdftoppm") is None, reason="poppler not installed")
-def test_renders_upright_and_in_place(tmp_path):
+@pytest.mark.parametrize("mode", ["vector", "bitmap"])
+def test_renders_upright_and_in_place(tmp_path, mode):
     job = ht.Recipe(
         canvas=ht.Canvas.of(40, 30, dpi=150),
         inks=ht.InkSet(ht.Ink("k", "#000000", angle=45, source=ht.Masked(ht.Constant(1.0), ht.Rect(0, 0, 20, 10)))),
@@ -90,7 +91,7 @@ def test_renders_upright_and_in_place(tmp_path):
         substrate=ht.Substrate("t", output_condition="FOGRA39"),
     )
     path = tmp_path / "k.pdf"
-    write_pdf(job, path, marks=False)
+    write_pdf(job, path, marks=False, mode=mode, bitmap_dpi=1016)
     subprocess.run(["pdftoppm", "-r", "254", "-gray", "-png", "-singlefile", str(path), str(tmp_path / "k")], check=True)
     img = np.asarray(PILImage.open(tmp_path / "k.png").convert("L"))
     m = round(SLUG_MM * 10)  # 10 px/mm; no bleed
@@ -111,3 +112,68 @@ def test_pdf_target_refuses_like_film(tmp_path):
 def test_unregistered_output_condition_is_refused(tmp_path):
     with pytest.raises(ValueError, match="registered"):
         write_pdf(_job(), tmp_path / "x.pdf", output_condition="MyPress")
+
+
+def _render_gray(path, tmp_path, name, dpi=254):
+    subprocess.run(["pdftoppm", "-r", str(dpi), "-gray", "-png", "-singlefile", str(path), str(tmp_path / name)],
+                   check=True)
+    return np.asarray(PILImage.open(tmp_path / f"{name}.png").convert("L")).astype(float)
+
+
+def test_bitmap_mode_writes_one_image_mask_per_ink(tmp_path):
+    job = _job()
+    path = tmp_path / "bitmap.pdf"
+    counts = write_pdf(job, path, mode="bitmap", bitmap_dpi=600)
+    page = PdfReader(path).pages[0]
+    xobjects = page["/Resources"]["/XObject"]
+    assert len(xobjects) == 2
+    ppm = 600 / 25.4
+    for key in xobjects:
+        image = xobjects[key].get_object()
+        assert image["/Subtype"] == "/Image" and bool(image["/ImageMask"]) and image["/BitsPerComponent"] == 1
+        assert image["/Width"] == round(46 * ppm) and image["/Height"] == round(36 * ppm)  # trim + 3 mm bleed a side
+        assert len(image.get_data()) == image["/Height"] * ((image["/Width"] + 7) // 8)
+    content = page.get_contents().get_data().decode("ascii")
+    assert re.search(r"/CS0 cs 1 scn [-\d. ]+ cm /Im0 Do", content) and "/Im1 Do" in content
+    assert all(n > 0 for n in counts.values())
+    assert "600 dpi" in PdfReader(path).metadata["/Keywords"]
+
+
+@pytest.mark.skipif(shutil.which("pdftoppm") is None, reason="poppler not installed")
+def test_bitmap_and_vector_modes_print_the_same_plate(tmp_path):
+    job = ht.Recipe(
+        canvas=ht.Canvas.of(40, 30, dpi=150, bleed=2),
+        inks=ht.InkSet(ht.Ink("k", "#000000", angle=45)),
+        screen=ht.Screen(ruling_lpi=40, shape=ht.Elliptical(1.4)),
+        source=ht.Gradient(0.05, 0.95),
+        substrate=ht.Substrate("t", output_condition="FOGRA39"),
+    )
+    write_pdf(job, tmp_path / "v.pdf", marks=False)
+    write_pdf(job, tmp_path / "b.pdf", marks=False, mode="bitmap", bitmap_dpi=1016)
+    vector, bitmap = _render_gray(tmp_path / "v.pdf", tmp_path, "v"), _render_gray(tmp_path / "b.pdf", tmp_path, "b")
+    assert vector.shape == bitmap.shape
+    t = round((SLUG_MM + 2) * 10)  # trim's top-left at 10 px/mm
+
+    def blocks(img, n=25):
+        trim = img[t : t + 300, t : t + 400]
+        return trim.reshape(300 // n, n, 400 // n, n).mean(axis=(1, 3))
+
+    assert np.abs(blocks(vector) - blocks(bitmap)).max() < 0.04 * 255
+
+
+@pytest.mark.skipif(shutil.which("pdftoppm") is None, reason="poppler not installed")
+@pytest.mark.parametrize("mode", ["vector", "bitmap"])
+def test_ink_runs_into_the_bleed_and_stops_there(tmp_path, mode):
+    job = ht.Recipe(
+        canvas=ht.Canvas.of(40, 30, dpi=150, bleed=3),
+        inks=ht.InkSet(ht.Ink("k", "#000000", angle=45)),
+        screen=ht.Screen(ruling_lpi=40),
+        source=ht.Constant(0.6),
+        substrate=ht.Substrate("t", output_condition="FOGRA39"),
+    )
+    path = tmp_path / f"{mode}.pdf"
+    write_pdf(job, path, marks=False, mode=mode, bitmap_dpi=1016)
+    img = _render_gray(path, tmp_path, mode)
+    s = round(SLUG_MM * 10)  # bleed box's left and top edges at 10 px/mm
+    assert img[s + 100 : s + 250, s + 3 : s + 27].mean() < 200  # the 60% tint fills the 3 mm bleed
+    assert img[s + 100 : s + 250, s - 25 : s - 3].mean() > 250  # and nothing lands past it

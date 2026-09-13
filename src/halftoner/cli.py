@@ -68,7 +68,7 @@ def cmd_render(args) -> int:
         outcome = job.render(
             args.target, args.out, stem=Path(args.recipe).stem, force=args.force,
             supersample=args.supersample, film_dpi=args.film_dpi, wedge=not args.no_wedge,
-            output_condition=args.output_condition,
+            output_condition=args.output_condition, pdf_mode=args.pdf_mode, bitmap_dpi=args.bitmap_dpi,
         )
     except ConstraintRefused as e:
         print(e, file=sys.stderr)
@@ -139,6 +139,9 @@ def build_parser() -> argparse.ArgumentParser:
     d.add_argument("--film-dpi", type=float, default=1200)
     d.add_argument("--no-wedge", action="store_true")
     d.add_argument("--output-condition", help="PDF/X registered characterization (default: substrate's, else FOGRA39)")
+    d.add_argument("--pdf-mode", choices=["vector", "bitmap"], default="vector",
+                   help="vector dots, or 1-bit image masks per separation (for large or fine-ruled jobs)")
+    d.add_argument("--bitmap-dpi", type=int, default=2400, help="image mask resolution for --pdf-mode bitmap")
     d.set_defaults(fn=cmd_render)
 
     m = sub.add_parser("measure", help="measure a scan into a report and a draft press profile")

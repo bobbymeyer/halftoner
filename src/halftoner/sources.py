@@ -75,7 +75,7 @@ class Image(Source):
     """Photograph as linear reflectance.
 
     fit: "cover" | "contain" | "stretch", placed within `box` (x, y, w, h mm;
-    defaults to the whole canvas). `channel` is "luma", "r", "g", "b", or a
+    defaults to the whole canvas including its bleed). `channel` is "luma", "r", "g", "b", or a
     callable over linear RGB (..., 3) returning reflectance.
     """
 
@@ -98,7 +98,8 @@ class Image(Source):
 
     def _placement(self, canvas):
         """(mm per source px x, y) and top-left offset in mm."""
-        bx, by, bw, bh = self.box or (0.0, 0.0, canvas.width_mm, canvas.height_mm)
+        b = canvas.bleed_mm  # by default a photo runs into the bleed, as art for print should
+        bx, by, bw, bh = self.box or (-b, -b, canvas.width_mm + 2 * b, canvas.height_mm + 2 * b)
         ih, iw = self._lin.shape
         if self.fit == "stretch":
             return bw / iw, bh / ih, bx, by

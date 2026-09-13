@@ -119,6 +119,10 @@ Validated against renders with known parameters (`tests/test_measure.py`): rulin
 - TrimBox = canvas, BleedBox = canvas + bleed, 12 mm slug with crop marks and registration targets in the `All` color. Dots are clipped at the bleed.
 - OutputIntent names a registered characterization without embedding a profile: `FOGRA39` (coated), `FOGRA29` (uncoated), `IFRA26` (newsprint). Set it per substrate (`output_condition`) or with `--output-condition`.
 - No press artifacts, no fonts, no transparency; PDF 1.3.
+- Two ways to carry the screen (`--pdf-mode`):
+  - `vector` (default): every dot a path. Exact at any output resolution, but size grows with dot count, so it suits small or coarse jobs.
+  - `bitmap`: each separation a 1-bit image mask over the bleed box at `--bitmap-dpi` (default 2400, platesetter resolution), rasterized and compressed strip by strip straight to disk. The usual way pre-screened art ships; use it for posters and fine rulings.
+- Art runs into the bleed: plates are built out past it, and photos fill canvas plus bleed unless given a `box`.
 
 Built to the standard and checked structurally and by rendering (`tests/test_pdf.py`), but not yet run through a PDF/X preflight (Acrobat Preflight, callas pdfToolbox). Preflight before sending a job.
 

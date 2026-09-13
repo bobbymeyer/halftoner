@@ -145,7 +145,8 @@ class Recipe:
     def _build_plate(self, ink) -> Plate:
         sc, cv, press = self.screen, self.canvas, self.press
         pitch = lpi_to_pitch_mm(self.ruling_for(ink))
-        margin = press.misregistration * (1 + press.drift) * 2 + press.slur + pitch
+        # Cells out past the bleed (film and PDF print it) plus however far the press can move them.
+        margin = press.misregistration * (1 + press.drift) * 2 + press.slur + pitch + cv.bleed_mm
         i0, j0, ni, nj = cell_range(cv, pitch, ink.angle, sc.origin, sc.phase, margin)
         empty = np.zeros((nj, ni))
         plate = Plate(ink, ink.shape or sc.shape, pitch, ink.angle, sc.origin, sc.phase, i0, j0, empty, empty)
@@ -191,7 +192,7 @@ class Recipe:
 
     def render(self, target: str, out_dir=".", stem: str = "job", force: bool = False,
                supersample: int = 4, film_dpi: float = 1200, wedge: bool = True,
-               output_condition: str | None = None):
+               output_condition: str | None = None, pdf_mode: str = "vector", bitmap_dpi: int = 2400):
         """Render through a target's policy. Returns an Outcome; raises ConstraintRefused unless forced."""
         from pathlib import Path
 
@@ -214,15 +215,16 @@ class Recipe:
             outcome.paths = write_films(job, out, stem, dpi=film_dpi, wedge=wedge)
         elif target == "pdf":
             path = out / f"{stem}.pdf"
-            job.render_pdf(path, output_condition=output_condition)
+            job.render_pdf(path, output_condition=output_condition, mode=pdf_mode, bitmap_dpi=bitmap_dpi)
             outcome.paths = [path]
         return outcome
 
-    def render_pdf(self, path, output_condition: str | None = None, marks: bool = True) -> dict[str, int]:
+    def render_pdf(self, path, output_condition: str | None = None, marks: bool = True, mode: str = "vector",
+                   bitmap_dpi: int = 2400) -> dict[str, int]:
         """PDF/X-1a spot separations, pre-screened and overprinted. Bypasses target policy."""
         from .render.pdf import write_pdf
 
-        return write_pdf(self, path, output_condition=output_condition, marks=marks)
+        return write_pdf(self, path, output_condition=output_condition, marks=marks, mode=mode, bitmap_dpi=bitmap_dpi)
 
     def render_svg(self, path, artifacts: bool = False, precision: int = 2) -> dict[str, int]:
         from .render.svg import write_svg

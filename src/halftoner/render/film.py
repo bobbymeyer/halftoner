@@ -14,6 +14,8 @@ import numpy as np
 from PIL import Image as PILImage
 from PIL import ImageDraw, ImageFont, ImageOps
 
+from .bitmap import hit_rows
+
 MARGIN_MM = 15.0
 WEDGE = (0, 2, 5, 10, 25, 50, 75, 90, 95, 98, 100)
 WEDGE_H_MM = 8.0
@@ -34,11 +36,10 @@ def _font(px: int):
         return ImageFont.load_default()
 
 
-def film_sheet(recipe, plate, dpi: float = 1200, wedge: bool = True, strip_rows: int = 256) -> PILImage.Image:
+def film_sheet(recipe, plate, dpi: float = 1200, wedge: bool = True) -> PILImage.Image:
     cv, M = recipe.canvas, MARGIN_MM
     ppm = dpi / 25.4
     W, H = round((cv.width_mm + 2 * M) * ppm), round((cv.height_mm + 2 * M) * ppm)
-    part_thr = [plate.shape.threshold(part.area) for part in plate.parts]
     b = cv.bleed_mm
     n = len(WEDGE)
     wx0 = 2.0  # inset so the wedge clears the crop marks at the trim corners
@@ -47,20 +48,9 @@ def film_sheet(recipe, plate, dpi: float = 1200, wedge: bool = True, strip_rows:
     wy0 = cv.height_mm + 3.0
 
     black = np.zeros((H, W), dtype=bool)
-    xs = (np.arange(W) + 0.5) / ppm - M
-    for r0 in range(0, H, strip_rows):
-        r1 = min(H, r0 + strip_rows)
-        X, Y = np.meshgrid(xs, (np.arange(r0, r1) + 0.5) / ppm - M)
-        art = (X >= -b) & (X < cv.width_mm + b) & (Y >= -b) & (Y < cv.height_mm + b)
-        row, col, valid, u, v = plate.locate(X, Y)
-        spot = plate.shape.spot(u, v)
-        inked = np.zeros(X.shape, dtype=bool)
-        for part, thr in zip(plate.parts, part_thr):
-            layer = valid & (spot <= thr[row, col])
-            if part.clip is not None:
-                layer &= part.clip(X, Y)  # region cuts, unchoked: trap gaps are a press artifact
-            inked |= layer
-        inked &= art
+    for r0, X, Y, inked in hit_rows(plate, -M, -M, W, H, dpi):
+        r1 = r0 + len(inked)
+        inked &= (X >= -b) & (X < cv.width_mm + b) & (Y >= -b) & (Y < cv.height_mm + b)
         if wedge:
             in_wedge = (Y >= wy0) & (Y < wy0 + WEDGE_H_MM) & (X >= wx0) & (X < wx0 + patch_w * n)
             if in_wedge.any():
