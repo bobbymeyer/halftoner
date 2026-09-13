@@ -104,3 +104,47 @@ def test_garment_profile_builds_an_underbase():
     assert [i.name for i in job.print_inks] == ["underbase", "gold", "red"]
     assert job.inks.inks[0].opacity == 0.8
     assert all(c.ok for c in job.report().checks if c.kind == "angle")
+
+
+def _choke_check(job):
+    (check,) = [c for c in job.report().checks if c.kind == "choke"]
+    return check
+
+
+def test_a_choke_finer_than_a_cell_is_reported_as_doing_nothing():
+    # 40 lpi is a 0.635 mm cell, so a 0.3 mm choke cannot erode a tonal edge at all.
+    job = _shirt(ht.Constant(0.5), choke=0.3, ruling=40)
+    check = _choke_check(job)
+    assert not check.ok
+    assert check.name == "white choke >= one cell"
+    assert "0.3 mm is 0.47 of a 0.635 mm cell" in check.detail
+    assert "[report] white choke >= one cell" in str(apply_policy(job, "screen")[1])
+
+
+def test_a_choke_over_a_cell_passes():
+    job = _shirt(ht.Constant(0.5), choke=1.0, ruling=40)  # 1.57 cells
+    assert _choke_check(job).ok
+
+
+def test_the_reported_threshold_is_where_erosion_actually_starts():
+    """The check must not pass while erode() is still a no-op, in either direction."""
+    step = ht.Function(lambda x, y: np.where(x < 10, 1.0, 0.0))
+    pitch = _shirt(step, ruling=40).plates()[0].pitch_mm
+    unchoked = _shirt(step, choke=0.0, ruling=40).plates()[0].area
+    for cells in (0.5, 0.9, 0.99, 1.0, 1.4):
+        job = _shirt(step, choke=cells * pitch, ruling=40)
+        eroded = not np.array_equal(job.plates()[0].area, unchoked)
+        assert _choke_check(job).ok == eroded, f"check disagrees with erode() at {cells} cells"
+
+
+def test_a_zero_choke_is_not_reported():
+    assert [c for c in _shirt(ht.Constant(0.5), choke=0.0).report().checks if c.kind == "choke"] == []
+
+
+def test_the_garment_profiles_own_choke_does_not_erode_at_its_own_ruling():
+    """plastisol_dark_garment_nominal ships 0.3 mm at 45 lpi: 0.53 of a cell, so tonal edges keep their own."""
+    p = ht.PressProfile.load("plastisol_dark_garment_nominal")
+    job = p.recipe(ht.Canvas.of(20, 20, dpi=100), [("gold", "#F2C230")],
+                   source=ht.Constant(0.5), underbase=True)
+    check = _choke_check(job)
+    assert not check.ok and "0.53 of a 0.564 mm cell" in check.detail
