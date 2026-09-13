@@ -22,7 +22,7 @@ jobs:
       # they went unrun, so here a missing poppler is an error rather than a quiet skip.
       HALFTONER_REQUIRE_POPPLER: "1"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install poppler
         run: |
@@ -30,7 +30,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends poppler-utils
           pdftoppm -v
 
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v10
         with:
           enable-cache: true
           cache-dependency-glob: uv.lock
