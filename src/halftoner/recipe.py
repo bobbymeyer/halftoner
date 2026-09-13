@@ -14,8 +14,8 @@ import numpy as np
 from .canvas import Canvas
 from .ink import InkSet
 from .press import Press
-from .screen import Plate, Screen, cell_range, lpi_to_pitch_mm
-from .sources import Layered
+from .screen import Plate, PlatePart, Screen, cell_range, lpi_to_pitch_mm
+from .sources import Layered, clip_of, clip_regions
 from .substrate import Substrate
 from .transfer import Transfer
 
@@ -154,12 +154,11 @@ class Recipe:
         layers = src.sources if isinstance(src, Layered) else [src]
         samples = [(s.sample(X, Y, pitch, cv), s.kind) for s in layers]
 
-        def solve(bias, sel=slice(None)):
-            area = np.maximum.reduce(
-                [self.transfer.plate_area(v[sel], k, ink, self.substrate, bias) for v, k in samples]
-            )
-            printed = np.where(area > 0, Transfer.printed_area(area, self.substrate, press.gain_curve), 0.0)
-            return area, printed
+        def printed_of(area):
+            return np.where(area > 0, Transfer.printed_area(area, self.substrate, press.gain_curve), 0.0)
+
+        def layer_areas(bias, sel=slice(None)):
+            return [self.transfer.plate_area(v[sel], k, ink, self.substrate, bias) for v, k in samples]
 
         bias = 1.0
         on = np.flatnonzero((X >= 0) & (X < cv.width_mm) & (Y >= 0) & (Y < cv.height_mm))
@@ -168,10 +167,19 @@ class Recipe:
             lo, hi = -6.0, 6.0  # log bias; more bias, less ink
             for _ in range(36):
                 mid = (lo + hi) / 2
-                lo, hi = (mid, hi) if solve(np.exp(mid), sel)[1].mean() > ink.coverage else (lo, mid)
+                covered = printed_of(np.maximum.reduce(layer_areas(np.exp(mid), sel))).mean()
+                lo, hi = (mid, hi) if covered > ink.coverage else (lo, mid)
             bias = float(np.exp((lo + hi) / 2))
-        plate.area, plate.printed = solve(bias)
+
+        areas = layer_areas(bias)
+        plate.area = np.maximum.reduce(areas)
+        plate.printed = printed_of(plate.area)
         plate.bias = bias
+        clips = [clip_of(s) for s in layers]
+        if all(c is None for c in clips):  # nothing to cut: one part is enough
+            plate.parts = [PlatePart(plate.area, plate.printed)]
+        else:
+            plate.parts = [PlatePart(a, printed_of(a), c, clip_regions(s)) for a, c, s in zip(areas, clips, layers)]
         return plate
 
     # --- outputs --------------------------------------------------------------------

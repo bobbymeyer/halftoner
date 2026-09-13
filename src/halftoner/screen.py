@@ -23,6 +23,20 @@ class Screen:
 
 
 @dataclass
+class PlatePart:
+    """One source layer on a plate: its own cell areas and its own region cut.
+
+    Layers are kept apart so one layer's edge cells (which carry its value past
+    the edge, to be sliced) can't leak into a neighbouring layer's region.
+    """
+
+    area: np.ndarray
+    printed: np.ndarray
+    clip: object = None  # fn(x_mm, y_mm, inset_mm) -> bool, or None for the whole sheet
+    regions: list | None = None  # the same cut as vector regions, for SVG
+
+
+@dataclass
 class Plate:
     ink: object
     shape: CellFill
@@ -35,6 +49,7 @@ class Plate:
     area: np.ndarray  # (nj, ni) nominal plate area
     printed: np.ndarray  # (nj, ni) area after gain
     bias: float = 1.0  # power on demanded area chosen to hit the ink's coverage target
+    parts: list = field(default_factory=list)  # PlatePart per source layer, each with its own cut
 
     @property
     def axes(self):

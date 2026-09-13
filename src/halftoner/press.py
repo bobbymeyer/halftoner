@@ -20,6 +20,8 @@ class Press:
     drift: float = 0.35  # low-frequency walk amplitude as a fraction of misregistration
     slur: float = 0.0  # mm of smear along the press direction
     press_angle: float = 90.0  # degrees; 90 = sheet travels down the page
+    density_variance: float = 0.0  # peak fractional change in ink film across the sheet: 0.05 = +-5%
+    trap_gap: float = 0.0  # mm of paper opened where masked regions meet (knockout without trap)
     extra_gain: float | Curve = 0.0  # uncorrected gain on press: 0.15 pushes 50% -> 65%
     key: str | None = None  # plate everything registers to; defaults to the first ink
     seed: int = 0
@@ -57,6 +59,31 @@ class Press:
                     dx = dx + amp * np.sin(k * s + px)
                     dy = dy + amp * np.sin(k * s + py)
                 return dx, dy
+
+            fields[ink.name] = field
+        return fields
+
+    def density_fields(self, inks, canvas):
+        """{ink name: fn(x_mm, y_mm) -> fractional film-thickness change}, low frequency, seeded per ink.
+
+        Ink starves and floods across the sheet as fountain keys and water balance
+        wander. Every ink varies, the key plate included; it's the sheet, not the plate.
+        """
+        dv = self.density_variance
+        if dv <= 0:
+            return {}
+        span = max(canvas.width_mm, canvas.height_mm)
+        fields = {}
+        for idx, ink in enumerate(inks):
+            rng = np.random.default_rng([self.seed, idx, 1])  # separate stream from misregistration
+            waves = [
+                (rng.uniform(0, 2 * np.pi), 2 * np.pi / (span * rng.uniform(0.6, 2.0)), rng.uniform(0, 2 * np.pi))
+                for _ in range(3)
+            ]
+
+            def field(x, y, waves=waves):
+                s = sum(np.sin(k * (x * np.cos(d) + y * np.sin(d)) + p) for d, k, p in waves)
+                return np.clip(dv * s / 2, -dv, dv)
 
             fields[ink.name] = field
         return fields

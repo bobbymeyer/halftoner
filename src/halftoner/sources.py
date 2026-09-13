@@ -151,6 +151,12 @@ class Rect:
     def contains(self, x, y):
         return (x >= self.x) & (x < self.x + self.w) & (y >= self.y) & (y < self.y + self.h)
 
+    def signed_distance(self, x, y):
+        """mm to the edge: positive inside, negative outside."""
+        qx = np.abs(np.asarray(x) - (self.x + self.w / 2)) - self.w / 2
+        qy = np.abs(np.asarray(y) - (self.y + self.h / 2)) - self.h / 2
+        return -(np.hypot(np.maximum(qx, 0), np.maximum(qy, 0)) + np.minimum(np.maximum(qx, qy), 0))
+
 
 @dataclass(frozen=True)
 class Polygon:
@@ -167,6 +173,17 @@ class Polygon:
             inside ^= crosses & (x < xint)
         return inside
 
+    def signed_distance(self, x, y):
+        """mm to the nearest edge: positive inside, negative outside."""
+        x, y = np.asarray(x, dtype=np.float64), np.asarray(y, dtype=np.float64)
+        d = np.full(np.shape(x), np.inf)
+        pts = self.points
+        for (x1, y1), (x2, y2) in zip(pts, pts[1:] + pts[:1]):
+            ex, ey = x2 - x1, y2 - y1
+            t = np.clip(((x - x1) * ex + (y - y1) * ey) / max(ex * ex + ey * ey, 1e-12), 0, 1)
+            d = np.minimum(d, np.hypot(x - (x1 + t * ex), y - (y1 + t * ey)))
+        return np.where(self.contains(x, y), d, -d)
+
 
 @dataclass
 class Masked(Source):
@@ -178,8 +195,11 @@ class Masked(Source):
         return self.source.kind
 
     def sample(self, x_mm, y_mm, cell_mm, canvas):
+        # Cells straddling the edge carry the region's value; the renderer then cuts
+        # their dots at the true edge, the way a tint was cut from film.
         v = self.source.sample(x_mm, y_mm, cell_mm, canvas)
-        return np.where(self.region.contains(x_mm, y_mm), v, EMPTY[self.kind])
+        near = self.region.signed_distance(x_mm, y_mm) >= -cell_mm * np.sqrt(0.5)
+        return np.where(near, v, EMPTY[self.kind])
 
     def sampling_ratio(self, cell_mm, canvas):
         return self.source.sampling_ratio(cell_mm, canvas)
@@ -202,3 +222,39 @@ class Layered(Source):
     def sampling_ratio(self, cell_mm, canvas):
         ratios = [r for s in self.sources if (r := s.sampling_ratio(cell_mm, canvas)) is not None]
         return min(ratios) if ratios else None
+
+
+# --- clipping: where a plate's ink may land, at full resolution ---------------------------
+
+
+def clip_of(src):
+    """fn(x_mm, y_mm, inset_mm=0) -> bool for a plate's source, or None when it covers the sheet.
+
+    Masked sources clip to their region (intersected with any inner mask);
+    Layered sources clip to the union of their layers. `inset` chokes the edge,
+    which is how a trap gap opens between abutting regions.
+    """
+    if isinstance(src, Masked):
+        inner = clip_of(src.source)
+        region = src.region
+        if inner is None:
+            return lambda x, y, inset=0.0: region.signed_distance(x, y) >= inset
+        return lambda x, y, inset=0.0: (region.signed_distance(x, y) >= inset) & inner(x, y, inset)
+    if isinstance(src, Layered):
+        parts = [clip_of(s) for s in src.sources]
+        if any(p is None for p in parts):
+            return None
+        return lambda x, y, inset=0.0: np.logical_or.reduce([p(x, y, inset) for p in parts])
+    return None
+
+
+def clip_regions(src) -> list | None:
+    """Union of regions for vector clip paths (outermost mask of each layer), or None."""
+    if isinstance(src, Masked):
+        return [src.region]
+    if isinstance(src, Layered):
+        parts = [clip_regions(s) for s in src.sources]
+        if any(p is None for p in parts):
+            return None
+        return [r for p in parts for r in p]
+    return None

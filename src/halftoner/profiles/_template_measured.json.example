@@ -24,7 +24,7 @@
     "compression": null
   },
   "screen": {"ruling_lpi": 0, "shape": "round", "angles": [0, 0]},
-  "press": {"misregistration": 0.0, "drift": 0.35, "slur": 0.0, "press_angle": 90, "extra_gain": 0.0},
+  "press": {"misregistration": 0.0, "drift": 0.35, "slur": 0.0, "press_angle": 90, "density_variance": 0.0, "trap_gap": 0.0, "extra_gain": 0.0},
   "transfer": {"yule_nielsen_n": 1.0, "compensate_gain": true},
   "ink": {"density": 1.0, "opacity": 0.0}
 }

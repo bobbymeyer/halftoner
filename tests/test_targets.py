@@ -47,7 +47,7 @@ def test_film_is_one_bit_mirrored_with_margin(tmp_path):
     row = round((5 + m) * 10)
     # Solid ink on the canvas's left half lands on the sheet's right half once mirrored.
     assert not white[row, 260:340].any()
-    assert white[row, 160:240].all()
+    assert white[row, 160:250].all()  # right up to the cut: edge cells are clipped on film too
 
 
 def test_film_step_wedge_is_screened_in_bottom_margin(tmp_path):

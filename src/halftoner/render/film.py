@@ -38,7 +38,7 @@ def film_sheet(recipe, plate, dpi: float = 1200, wedge: bool = True, strip_rows:
     cv, M = recipe.canvas, MARGIN_MM
     ppm = dpi / 25.4
     W, H = round((cv.width_mm + 2 * M) * ppm), round((cv.height_mm + 2 * M) * ppm)
-    thr = plate.shape.threshold(plate.area)
+    part_thr = [plate.shape.threshold(part.area) for part in plate.parts]
     b = cv.bleed_mm
     n = len(WEDGE)
     wx0 = 2.0  # inset so the wedge clears the crop marks at the trim corners
@@ -53,7 +53,14 @@ def film_sheet(recipe, plate, dpi: float = 1200, wedge: bool = True, strip_rows:
         X, Y = np.meshgrid(xs, (np.arange(r0, r1) + 0.5) / ppm - M)
         art = (X >= -b) & (X < cv.width_mm + b) & (Y >= -b) & (Y < cv.height_mm + b)
         row, col, valid, u, v = plate.locate(X, Y)
-        inked = art & valid & (plate.shape.spot(u, v) <= thr[row, col])
+        spot = plate.shape.spot(u, v)
+        inked = np.zeros(X.shape, dtype=bool)
+        for part, thr in zip(plate.parts, part_thr):
+            layer = valid & (spot <= thr[row, col])
+            if part.clip is not None:
+                layer &= part.clip(X, Y)  # region cuts, unchoked: trap gaps are a press artifact
+            inked |= layer
+        inked &= art
         if wedge:
             in_wedge = (Y >= wy0) & (Y < wy0 + WEDGE_H_MM) & (X >= wx0) & (X < wx0 + patch_w * n)
             if in_wedge.any():

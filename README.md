@@ -56,7 +56,8 @@ Targets    screen  supersampled, press artifacts, ink bitmask → Neugebauer pri
   "substrate": {"paper": "#E6DFCC", "ruling_ceiling_lpi": 85, "gain": 0.28, "min_dot": 0.08, "max_dot": 0.85,
                 "min_printable_mm": 0.1, "compression": [0.1, 0.85]},
   "screen": {"ruling_lpi": 65, "shape": "round", "angles": [45, 75, 15, 0]},
-  "press": {"misregistration": 0.3, "drift": 0.5, "slur": 0.04, "press_angle": 90, "extra_gain": 0.0},
+  "press": {"misregistration": 0.3, "drift": 0.5, "slur": 0.04, "press_angle": 90,
+            "density_variance": 0.06, "trap_gap": 0.0, "extra_gain": 0.0},
   "transfer": {"yule_nielsen_n": 1.8, "compensate_gain": true},
   "ink": {"density": 0.9, "opacity": 0.0}
 }
@@ -65,6 +66,20 @@ Targets    screen  supersampled, press artifacts, ink bitmask → Neugebauer pri
 `gain` is a number (TVI at 50%) or measured `[[nominal, printed], ...]` pairs. Inks take angles from the profile's angle set in print order. Anything can be overridden per recipe: `profile.recipe(..., press={"misregistration": 0.5})`.
 
 The bundled profiles are labeled `NOMINAL`. A profile named for a tradition should come from measured scans (see `_template_measured.json.example`): ruling counted against trim size, angles read off a rotated crop, overprints sampled, plate walk measured. The film target's step wedge closes the gain loop: print it, measure the patches, feed the pairs back as `gain`.
+
+## Press artifacts
+
+All seeded, all per ink (never per RGB channel), applied by the screen and pod targets and left off film.
+
+| Artifact | Parameter | Model |
+|---|---|---|
+| Misregistration | `misregistration`, `drift`, `key` | per-plate constant offset plus low-frequency walk; the key plate stays put. Region cuts move with their plate |
+| Slur | `slur`, `press_angle` | each dot smeared along the press direction |
+| Density variance | `density_variance` | ink film thickness wanders across the sheet (±fraction, low frequency); each present ink's density scales Beer–Lambert style on top of its primary, so chosen overprints keep their character |
+| Trap gap | `trap_gap` | masked regions are choked by half the gap, opening a paper hairline where regions meet. With misregistration, butted regions already gap on one side and overlap on the other |
+| Uncorrected gain | `extra_gain` | an anti-curve applied on press |
+
+Masked regions are cut at full resolution, the way a tint was cut from film: edge cells carry the region's value and their dots are sliced at the true edge (raster, film, and SVG clip paths).
 
 ## Measuring scans
 
@@ -101,7 +116,7 @@ Validated against renders with known parameters (`tests/test_measure.py`): rulin
 |---|---|---|
 | 1–9 | Tone chain, ruling/angle/origin, dot shapes with joins, tone limits, gain curves, constant/gradient/region sources, single path per ink, sampling-ratio report, seeds | done |
 | 10–11 | Ink set, overprint overrides, composite in ink space | done |
-| 12 | Press artifacts | misregistration + drift + slur; density variance and trap gaps not yet |
+| 12 | Press artifacts | done: misregistration + drift, slur, density variance, trap gaps |
 | 13 | Anti-curves, tone compression | done |
 | 14 | Substrate / press profiles | done, nominal only until measured |
 | 15 | Constraint engine | done: computed, reported, policy-gated per target |
@@ -110,4 +125,4 @@ Validated against renders with known parameters (`tests/test_measure.py`): rulin
 | 18 | Film positive export | done (registration marks, labels, mirrored, 1-bit) |
 | 22 | Mean coverage as a settable target | done (`Ink(coverage=0.2)`) |
 | 19–21, 23–24 | Underbase/choke, garment base, grid-commensurate ruling, FM screening, PDF/X | not yet |
-| — | resvg rasterizing of SVG output, density variance, trap gaps | not yet |
+| — | resvg rasterizing of SVG output | not yet |
