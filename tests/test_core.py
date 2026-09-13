@@ -130,3 +130,30 @@ def test_coverage_target_is_hit_through_gain(target):
     rep = job.report()
     assert rep.inks[0].mean_printed == pytest.approx(target, abs=0.005)
     assert next(c for c in rep.checks if c.kind == "coverage").ok
+
+
+def test_a_rotated_phone_photo_is_loaded_upright():
+    """Phones store portrait shots sideways plus an orientation tag; ignoring it screens the art rotated."""
+    import numpy as np
+    from PIL import Image as PILImage
+
+    import halftoner as ht
+
+    upright = PILImage.new("RGB", (40, 90))
+    for y in range(90):  # a vertical ramp, so a 90-degree error is unmistakable
+        for x in range(40):
+            upright.putpixel((x, y), (y * 2, y * 2, y * 2))
+
+    import tempfile, pathlib
+    d = pathlib.Path(tempfile.mkdtemp())
+    upright.save(d / "plain.jpg", quality=95)
+
+    sideways = upright.transpose(PILImage.Transpose.ROTATE_90)  # what the sensor writes
+    exif = PILImage.Exif()
+    exif[274] = 6  # "rotate 90 clockwise to display"
+    sideways.save(d / "rotated.jpg", exif=exif, quality=95)
+    assert PILImage.open(d / "rotated.jpg").size == (90, 40)  # stored sideways
+
+    plain, rotated = ht.Image(d / "plain.jpg"), ht.Image(d / "rotated.jpg")
+    assert rotated._lin.shape == plain._lin.shape == (90, 40)
+    assert np.abs(rotated._lin - plain._lin).max() < 0.02  # same picture, not a transpose of it
