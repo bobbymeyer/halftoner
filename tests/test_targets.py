@@ -1,10 +1,13 @@
+import pathlib
+
 import numpy as np
 import pytest
 from PIL import Image as PILImage
 
 import halftoner as ht
 from halftoner.cli import main
-from halftoner.policy import ConstraintRefused, apply_policy
+from halftoner.policy import POLICIES, ConstraintRefused, apply_policy
+from halftoner.recipe import CHECK_KINDS
 from halftoner.render.film import MARGIN_MM
 
 
@@ -71,3 +74,28 @@ def test_cli_new_report_render(tmp_path, capsys):
     assert (tmp_path / "job.svg").exists()
     job = ht.Recipe.load(recipe)
     assert job.inks.overprint == {frozenset({"red", "blue"}): "#3A2036"}
+
+
+def test_every_policy_decides_every_check_kind():
+    """A kind no policy names defaults to "report" -- advisory even on film and pdf, which refuse.
+
+    So a new check added without a policy decision would be silently toothless. Pin it.
+    """
+    for target, policy in POLICIES.items():
+        assert set(policy) == set(CHECK_KINDS), f"{target} policy and CHECK_KINDS disagree"
+        assert set(policy.values()) <= {"report", "warn", "cap", "refuse", "ignore"}
+
+
+def test_check_kinds_lists_exactly_what_report_emits():
+    """CHECK_KINDS is only useful if it tracks the Check() calls in recipe.py."""
+    import ast
+    import halftoner.recipe as recipe_mod
+
+    tree = ast.parse(pathlib.Path(recipe_mod.__file__).read_text())
+    emitted = {n.args[3].value for n in ast.walk(tree)
+               if isinstance(n, ast.Call) and getattr(n.func, "id", None) == "Check"
+               and len(n.args) >= 4 and isinstance(n.args[3], ast.Constant)}
+    bare = [n for n in ast.walk(tree)
+            if isinstance(n, ast.Call) and getattr(n.func, "id", None) == "Check" and len(n.args) < 4]
+    assert not bare, "every Check() must name its kind, not fall back to 'info'"
+    assert emitted == set(CHECK_KINDS)

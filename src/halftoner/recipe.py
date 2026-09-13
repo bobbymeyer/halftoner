@@ -26,12 +26,23 @@ GEOMETRY_WARN = 300_000
 MIN_ANGLE_SEPARATION = 15.0
 
 
+CHECK_KINDS = frozenset({
+    "ruling", "min_dot", "sampling", "coverage", "choke", "angle", "geometry", "tac", "grid",
+})
+"""Every kind `report()` can emit. Each target's policy must name all of them.
+
+A policy looks kinds up with a "report" default, so a kind no policy names would
+quietly be advisory everywhere -- including on film and pdf, which exist to refuse.
+Adding a check here without a policy decision is a test failure, not a silent pass.
+"""
+
+
 @dataclass
 class Check:
     name: str
     ok: bool
     detail: str
-    kind: str = "info"  # ruling | min_dot | sampling | angle | geometry | coverage
+    kind: str = "info"  # one of CHECK_KINDS for anything report() emits
 
 
 @dataclass
