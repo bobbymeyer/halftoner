@@ -433,8 +433,9 @@ class Recipe:
                 cells = self.underbase.choke_mm / plate.pitch_mm
                 checks.append(Check(f"{ink.name} choke >= one cell", cells >= MIN_ERODE_CELLS,
                                     f"{self.underbase.choke_mm:g} mm is {cells:.2f} of a {plate.pitch_mm:.3f} mm "
-                                    f"cell (tonal edges need {MIN_ERODE_CELLS:g} full cell; region edges are cut "
-                                    f"at full resolution regardless)", "choke"))
+                                    f"cell; tonal edges need a full cell, so "
+                                    f"{MIN_ERODE_CELLS * plate.pitch_mm:.2f} mm at this ruling "
+                                    f"(region edges are cut at full resolution regardless)", "choke"))
 
         inks = self.print_inks
         for ia, ib in combinations(inks, 2):

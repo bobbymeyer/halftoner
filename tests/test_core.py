@@ -157,3 +157,58 @@ def test_a_rotated_phone_photo_is_loaded_upright():
     plain, rotated = ht.Image(d / "plain.jpg"), ht.Image(d / "rotated.jpg")
     assert rotated._lin.shape == plain._lin.shape == (90, 40)
     assert np.abs(rotated._lin - plain._lin).max() < 0.02  # same picture, not a transpose of it
+
+
+def _wide_gamut_icc() -> bytes:
+    """Pillow's sRGB profile with two primaries pushed out.
+
+    Built by editing the numbers in a profile littleCMS already accepts, rather than shipping a
+    binary fixture or hand-rolling a header: the structure stays valid, only the primaries move.
+    """
+    from PIL import ImageCms
+
+    blob = bytearray(ImageCms.ImageCmsProfile(ImageCms.createProfile("sRGB")).tobytes())
+    for i in range(int.from_bytes(blob[128:132], "big")):  # walk the tag table
+        off = 132 + i * 12
+        if bytes(blob[off : off + 4]) in (b"rXYZ", b"bXYZ"):
+            data = int.from_bytes(blob[off + 4 : off + 8], "big")  # XYZType: sig, reserved, 3 x s15Fixed16
+            x = int.from_bytes(blob[data + 8 : data + 12], "big", signed=True)
+            blob[data + 8 : data + 12] = int(x * 1.4).to_bytes(4, "big", signed=True)
+    return bytes(blob)
+
+
+def test_an_embedded_colour_profile_is_converted_to_srgb():
+    """Phones tag Display P3, which shares sRGB's curve but not its primaries.
+
+    Read raw, every saturated colour lands shifted -- which matters most where it is worst, on
+    the strong flat colours an ink set gets chosen from.
+    """
+    import pathlib
+    import tempfile
+
+    import numpy as np
+    from PIL import Image as PILImage
+
+    import halftoner as ht
+
+    d = pathlib.Path(tempfile.mkdtemp())
+    patch = (222, 36, 40)
+    PILImage.new("RGB", (32, 32), patch).save(d / "untagged.png")
+    PILImage.new("RGB", (32, 32), patch).save(d / "tagged.png", icc_profile=_wide_gamut_icc())
+
+    plain = float(ht.Image(d / "untagged.png", channel="r")._lin.mean())
+    tagged = float(ht.Image(d / "tagged.png", channel="r")._lin.mean())
+    assert plain == pytest.approx(float(srgb_to_linear(patch[0] / 255)), abs=1e-3)  # untagged: unchanged
+    assert tagged > plain + 0.05, "the embedded profile was ignored"
+
+
+def test_an_unusable_colour_profile_falls_back_to_srgb():
+    """A profile littleCMS cannot build a transform from must not take the render down with it."""
+    import numpy as np
+    from PIL import Image as PILImage, ImageCms
+
+    from halftoner.color import to_srgb_image
+
+    img = PILImage.new("RGB", (8, 8), (222, 36, 40))
+    img.info["icc_profile"] = ImageCms.ImageCmsProfile(ImageCms.createProfile("LAB")).tobytes()
+    assert np.array_equal(np.asarray(to_srgb_image(img)), np.asarray(img))

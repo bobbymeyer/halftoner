@@ -192,3 +192,33 @@ def test_draft_profile_loads_and_is_not_measured(duotone, tmp_path, capsys):
     assert not p.measured and p.provenance.startswith("DRAFT")
     assert p.ruling_lpi == pytest.approx(RULING, rel=0.01)
     assert p.press["misregistration"] > 0.1
+
+
+def test_a_rotated_scan_is_loaded_upright_so_mm_boxes_land(tmp_path):
+    """Patch, wedge and paper boxes are millimetres from the scan's top-left as the caller sees it.
+
+    A phone photograph of a press sheet stores the pixels sideways plus an orientation tag, so
+    without honouring it every one of those boxes points at the wrong part of the sheet.
+    """
+    from PIL import Image as PILImage
+
+    from halftoner.measure.common import load_scan, mm_box_to_px
+
+    dpi = 100.0
+    px = lambda mm: round(mm * dpi / 25.4)  # noqa: E731
+    upright = PILImage.new("RGB", (px(40), px(60)), (250, 248, 240))
+    upright.paste((200, 40, 40), (px(5), px(30), px(15), px(40)))  # a patch at 5,30 20x10 mm
+
+    upright.save(tmp_path / "flat.jpg", dpi=(dpi, dpi), quality=95)
+    exif = PILImage.Exif()
+    exif[274] = 6  # "rotate 90 clockwise to display", what a phone writes for a portrait shot
+    upright.transpose(PILImage.Transpose.ROTATE_90).save(
+        tmp_path / "phone.jpg", dpi=(dpi, dpi), quality=95, exif=exif)
+    assert PILImage.open(tmp_path / "phone.jpg").size == (px(60), px(40))  # stored sideways
+
+    for name in ("flat.jpg", "phone.jpg"):
+        u8, got_dpi = load_scan(tmp_path / name)
+        assert u8.shape[:2] == (px(60), px(40)), name
+        y0, x0, h, w = mm_box_to_px((6.0, 31.0, 8.0, 8.0), got_dpi or dpi)  # inside the patch
+        patch = u8[y0 : y0 + h, x0 : x0 + w].reshape(-1, 3).mean(0)
+        assert patch[0] > 180 and patch[1] < 80, f"{name}: box landed off the patch, got {patch}"

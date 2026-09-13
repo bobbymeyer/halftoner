@@ -34,6 +34,8 @@ jobs:
         with:
           enable-cache: true
           cache-dependency-glob: uv.lock
+          # without this both matrix jobs compute one key and race; the loser warns on save
+          cache-suffix: py${{ matrix.python }}
 
       - name: Sync the locked environment
         run: uv sync --locked --python ${{ matrix.python }}
