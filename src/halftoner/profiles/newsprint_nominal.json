@@ -1,0 +1,19 @@
+{
+  "name": "newsprint_nominal",
+  "provenance": "NOMINAL - generic newsprint ranges, not measured from scans",
+  "notes": "Starting point only.",
+  "measurements": [],
+  "substrate": {
+    "paper": "#E6DFCC",
+    "ruling_ceiling_lpi": 85,
+    "gain": 0.28,
+    "min_dot": 0.08,
+    "max_dot": 0.85,
+    "min_printable_mm": 0.1,
+    "compression": [0.1, 0.85]
+  },
+  "screen": {"ruling_lpi": 65, "shape": "round", "angles": [45, 75, 15, 0]},
+  "press": {"misregistration": 0.3, "drift": 0.5, "slur": 0.04, "press_angle": 90, "extra_gain": 0.0},
+  "transfer": {"yule_nielsen_n": 1.8, "compensate_gain": true},
+  "ink": {"density": 0.9, "opacity": 0.0}
+}

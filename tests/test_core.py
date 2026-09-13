@@ -1,0 +1,132 @@
+import numpy as np
+import pytest
+from PIL import Image as PILImage
+
+import halftoner as ht
+from halftoner.color import hex_to_linear, srgb_to_linear
+from halftoner.render.raster import composite
+
+
+@pytest.mark.parametrize("shape", [ht.Round(), ht.Square(), ht.Elliptical(1.6), ht.Diamond(), ht.Line()])
+@pytest.mark.parametrize("area", [0.05, 0.3, 0.5, 0.8, 0.95])
+def test_threshold_inks_requested_area(shape, area):
+    g = (np.arange(700) + 0.5) / 700 - 0.5
+    u, v = np.meshgrid(g, g)
+    inked = (shape.spot(u, v) <= shape.threshold(area)).mean()
+    assert inked == pytest.approx(area, abs=0.01)
+
+
+def test_join_points():
+    assert ht.Round().join_points() == [pytest.approx(0.785, abs=0.002)]
+    assert ht.Square().join_points() == [pytest.approx(0.5, abs=0.002)]
+    assert len(ht.Elliptical(1.6).join_points()) == 2
+
+
+def test_murray_davies_and_yule_nielsen_round_trip():
+    assert ht.tone_to_area(0.5, 0.0, n=1) == pytest.approx(0.5)
+    a = ht.tone_to_area(np.linspace(0, 1, 11), 0.2, n=1.7)
+    assert ht.area_to_tone(a, 0.2, n=1.7) == pytest.approx(np.clip(np.linspace(0, 1, 11), 0.2, 1))
+
+
+def test_gain_curve_and_inverse():
+    g = ht.Curve.gain(0.15)
+    assert g(0.5) == pytest.approx(0.65)
+    assert g.inverse()(g(np.array([0.1, 0.5, 0.9]))) == pytest.approx([0.1, 0.5, 0.9], abs=1e-3)
+
+
+def test_overprint_override_propagates_to_larger_sets():
+    inks = ht.InkSet(
+        ht.Ink("red", "#D6422B"), ht.Ink("blue", "#1F3A63"), ht.Ink("yellow", "#F2C230"),
+        overprint={("red", "blue"): "#3A2036"},
+    )
+    prim = inks.primaries("#FFFFFF")
+    assert prim[0b011] == pytest.approx(hex_to_linear("#3A2036"))
+    assert prim[0b111] == pytest.approx(hex_to_linear("#3A2036") * inks.inks[2].transmittance)
+    assert prim[0b101] == pytest.approx(inks.inks[0].transmittance * inks.inks[2].transmittance)
+
+
+def _flat_tint(value, shape=None, **press):
+    return ht.Recipe(
+        canvas=ht.Canvas.of(20, 20, dpi=150),
+        inks=ht.InkSet(ht.Ink("black", "#000000", angle=45)),
+        screen=ht.Screen(ruling_lpi=40, shape=shape or ht.Round()),
+        source=ht.Constant(value),
+        press=ht.Press(**press),
+    )
+
+
+@pytest.mark.parametrize("shape", [ht.Round(), ht.Square(), ht.Elliptical()])
+def test_constant_source_is_a_flat_tint_with_correct_reflectance(shape):
+    job = _flat_tint(0.3, shape)
+    assert job.report().inks[0].mean_plate == pytest.approx(0.3)
+    px = composite(job, supersample=4)
+    reflectance = srgb_to_linear(px / 255.0).mean()
+    assert reflectance == pytest.approx(0.7, abs=0.01)
+
+
+def test_press_is_seeded_and_key_plate_stays_put():
+    canvas = ht.Canvas.of(100, 100)
+    inks = ht.InkSet(ht.Ink("a", "#000"), ht.Ink("b", "#f00"), ht.Ink("c", "#00f"))
+    x = np.array([10.0, 50.0]); y = np.array([10.0, 90.0])
+    f1 = ht.Press(misregistration=0.4, seed=3).offsets(inks.inks, canvas)
+    f2 = ht.Press(misregistration=0.4, seed=3).offsets(inks.inks, canvas)
+    f3 = ht.Press(misregistration=0.4, seed=4).offsets(inks.inks, canvas)
+    assert np.all(f1["a"](x, y)[0] == 0)
+    assert np.allclose(f1["b"](x, y), f2["b"](x, y))
+    assert not np.allclose(f1["b"](x, y), f3["b"](x, y))
+
+
+def test_masked_region_leaves_no_ink_outside():
+    job = _flat_tint(0.0)
+    job.inks.inks[0].source = ht.Masked(ht.Constant(0.5), ht.Rect(0, 0, 10, 20))
+    plate = job.plates()[0]
+    X, Y = plate.centers()
+    assert np.all(plate.area[X > 10.5] == 0)
+    inside = (X > 0.5) & (X < 9.5) & (Y > 0.5) & (Y < 19.5)
+    assert np.all(plate.area[inside] == pytest.approx(0.5))
+
+
+def test_substrate_limits_drop_and_snap():
+    sub = ht.Substrate("t", min_dot=0.1, max_dot=0.9)
+    ink = ht.Ink("k", "#000")
+    a = ht.Transfer(compensate_gain=False).plate_area(np.array([0.05, 0.5, 0.95]), "area", ink, sub)
+    assert list(a) == [0.0, 0.5, 1.0]
+
+
+def test_image_sampling_ratio_and_report(tmp_path):
+    img = tmp_path / "g.png"
+    PILImage.fromarray(np.tile(np.linspace(0, 255, 64, dtype=np.uint8), (64, 1))).save(img)
+    job = ht.Recipe(
+        canvas=ht.Canvas.of(64, 64, dpi=100),
+        inks=ht.InkSet(ht.Ink("k", "#000", angle=45), ht.Ink("r", "#c00", angle=50)),
+        screen=ht.Screen(ruling_lpi=25.4),  # 1 mm cells over 1 mm source px
+        source=ht.Image(img),
+    )
+    rep = job.report()
+    assert rep.inks[0].sampling_ratio == pytest.approx(1.0)
+    sep = next(c for c in rep.checks if "angle" in c.name)
+    assert not sep.ok
+    assert "PAST" in str(rep)
+
+
+def test_svg_has_one_path_per_ink(tmp_path):
+    job = _flat_tint(0.4)
+    counts = job.render_svg(tmp_path / "t.svg")
+    text = (tmp_path / "t.svg").read_text()
+    assert text.count("<path") == 1
+    assert counts["black"] > 0
+
+
+@pytest.mark.parametrize("target", [0.12, 0.35, 0.6])
+def test_coverage_target_is_hit_through_gain(target):
+    job = ht.Recipe(
+        canvas=ht.Canvas.of(60, 40, dpi=100),
+        inks=ht.InkSet(ht.Ink("k", "#000", coverage=target)),
+        screen=ht.Screen(ruling_lpi=40),
+        source=ht.Function(lambda x, y: 0.15 + 0.8 * x / 60, kind="tone"),
+        substrate=ht.Substrate.load("newsprint_nominal"),
+        press=ht.Press(extra_gain=0.1),
+    )
+    rep = job.report()
+    assert rep.inks[0].mean_printed == pytest.approx(target, abs=0.005)
+    assert next(c for c in rep.checks if c.kind == "coverage").ok

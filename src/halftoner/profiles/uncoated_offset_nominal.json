@@ -1,0 +1,19 @@
+{
+  "name": "uncoated_offset_nominal",
+  "provenance": "NOMINAL - generic uncoated-offset ranges, not measured from scans",
+  "notes": "Starting point only. Replace with a measured profile before naming it for a tradition.",
+  "measurements": [],
+  "substrate": {
+    "paper": "#F2EDE0",
+    "ruling_ceiling_lpi": 133,
+    "gain": 0.2,
+    "min_dot": 0.04,
+    "max_dot": 0.9,
+    "min_printable_mm": 0.06,
+    "compression": null
+  },
+  "screen": {"ruling_lpi": 85, "shape": {"shape": "elliptical", "ratio": 1.4}, "angles": [45, 75, 15, 0]},
+  "press": {"misregistration": 0.15, "drift": 0.35, "slur": 0.02, "press_angle": 90, "extra_gain": 0.0},
+  "transfer": {"yule_nielsen_n": 1.5, "compensate_gain": true},
+  "ink": {"density": 1.0, "opacity": 0.0}
+}

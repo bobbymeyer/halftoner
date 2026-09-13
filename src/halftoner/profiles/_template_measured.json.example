@@ -1,0 +1,30 @@
+{
+  "name": "tradition_decade_stock",
+  "provenance": "MEASURED - see measurements",
+  "notes": "Every number below should trace to an entry in measurements.",
+  "measurements": [
+    {
+      "item": "title / publisher / year",
+      "trim_mm": [0, 0],
+      "scan_dpi": 1200,
+      "ruling": "dots counted across N mm of a flat tint",
+      "angles": "read off a rotated crop per ink",
+      "gain": "nominal vs measured area on flat tints",
+      "misregistration_mm": "offset between inks at reg-sensitive edges, several points on the sheet",
+      "overprints": {"ink_a+ink_b": "#sampled"}
+    }
+  ],
+  "substrate": {
+    "paper": "#sampled from unprinted margin",
+    "ruling_ceiling_lpi": 0,
+    "gain": [[0.1, 0.0], [0.25, 0.0], [0.5, 0.0], [0.75, 0.0], [0.9, 0.0]],
+    "min_dot": 0.0,
+    "max_dot": 1.0,
+    "min_printable_mm": 0.0,
+    "compression": null
+  },
+  "screen": {"ruling_lpi": 0, "shape": "round", "angles": [0, 0]},
+  "press": {"misregistration": 0.0, "drift": 0.35, "slur": 0.0, "press_angle": 90, "extra_gain": 0.0},
+  "transfer": {"yule_nielsen_n": 1.0, "compensate_gain": true},
+  "ink": {"density": 1.0, "opacity": 0.0}
+}
