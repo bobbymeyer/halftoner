@@ -10,7 +10,7 @@ uv run halftoner profiles
 uv run halftoner new job.json --profile newsprint_nominal --image photo.jpg --size 180x240 --dpi 150 \
     --ink warm_red=#D6422B --ink prussian=#1F3A63 --overprint warm_red+prussian=#3A2036 --seed 7
 uv run halftoner report job.json --target film      # report + what the film target would do
-uv run halftoner render job.json --target screen    # screen | svg | pod | film  [--force]
+uv run halftoner render job.json --target screen    # screen | svg | pod | film | pdf  [--force]
 
 uv run python examples/two_ink_poster.py [photo.jpg]  # the Python surface
 
@@ -42,6 +42,8 @@ Targets    screen  supersampled, press artifacts, ink bitmask → Neugebauer pri
            pod     screen, with ruling capped at the substrate ceiling
            svg     one <path> per ink in mm; arcs below the join, traced polygons above
            film    per ink, 1-bit, no AA, no artifacts, mirrored; crop marks, reg targets, label, step wedge
+           pdf     PDF/X-1a:2001: one overprinting spot separation per ink, pre-screened vector dots,
+                   trim/bleed boxes, registration-color marks, registered output intent
 ```
 
 ## Press profiles
@@ -99,14 +101,26 @@ Validated against renders with known parameters (`tests/test_measure.py`): rulin
 
 ## Constraint policy
 
-| Check | screen | svg | pod | film |
-|---|---|---|---|---|
-| Ruling ≤ substrate ceiling | report | report | cap | refuse |
-| Smallest dot printable | report | report | report | refuse |
-| Sampling ratio ≥ 1.0 | report | report | report | refuse |
-| Ink angle separation ≥ 15° | report | report | report | refuse |
-| Geometry count | – | warn | – | – |
-| Coverage target reached | report | report | report | report |
+| Check | screen | svg | pod | film | pdf |
+|---|---|---|---|---|---|
+| Ruling ≤ substrate ceiling | report | report | cap | refuse | refuse |
+| Smallest dot printable | report | report | report | refuse | refuse |
+| Sampling ratio ≥ 1.0 | report | report | report | refuse | refuse |
+| Ink angle separation ≥ 15° | report | report | report | refuse | refuse |
+| Geometry count | – | warn | – | – | – |
+| Coverage target reached | report | report | report | report | report |
+
+## PDF/X
+
+`--target pdf` writes PDF/X-1a:2001 (ISO 15930-1) separations for a printer:
+
+- One `Separation` color space per ink, named for the ink; every dot is a 100% tint, so the RIP images the screen as drawn and never re-screens it. Each separation's DeviceCMYK alternate is a naive conversion for on-screen proofing only.
+- Overprint on (`OP`, `op`, `OPM 1`) for everything: plates never knock each other out, and the press makes the overprint colors. A chosen overprint color is a property of the real inks, so it's recorded in the document's Keywords rather than encoded.
+- TrimBox = canvas, BleedBox = canvas + bleed, 12 mm slug with crop marks and registration targets in the `All` color. Dots are clipped at the bleed.
+- OutputIntent names a registered characterization without embedding a profile: `FOGRA39` (coated), `FOGRA29` (uncoated), `IFRA26` (newsprint). Set it per substrate (`output_condition`) or with `--output-condition`.
+- No press artifacts, no fonts, no transparency; PDF 1.3.
+
+Built to the standard and checked structurally and by rendering (`tests/test_pdf.py`), but not yet run through a PDF/X preflight (Acrobat Preflight, callas pdfToolbox). Preflight before sending a job.
 
 `--force` / `render(force=True)` renders past a refusal and marks it in the outcome.
 
@@ -124,5 +138,6 @@ Validated against renders with known parameters (`tests/test_measure.py`): rulin
 | 17 | Step wedge emitter + curve ingest | wedge on film sheets; ingest via `gain` pairs |
 | 18 | Film positive export | done (registration marks, labels, mirrored, 1-bit) |
 | 22 | Mean coverage as a settable target | done (`Ink(coverage=0.2)`) |
-| 19–21, 23–24 | Underbase/choke, garment base, grid-commensurate ruling, FM screening, PDF/X | not yet |
+| 24 | PDF/X export with separations and overprint flags | done (PDF/X-1a:2001; not yet preflighted) |
+| 19–21, 23 | Underbase/choke, garment base, grid-commensurate ruling, FM screening | not yet |
 | — | resvg rasterizing of SVG output | not yet |

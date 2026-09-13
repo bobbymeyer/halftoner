@@ -17,6 +17,7 @@ POLICIES: dict[str, dict[str, str]] = {
     "svg": {"ruling": "report", "min_dot": "report", "sampling": "report", "angle": "report", "geometry": "warn", "coverage": "report"},
     "pod": {"ruling": "cap", "min_dot": "report", "sampling": "report", "angle": "report", "geometry": "ignore", "coverage": "report"},
     "film": {"ruling": "refuse", "min_dot": "refuse", "sampling": "refuse", "angle": "refuse", "geometry": "ignore", "coverage": "report"},
+    "pdf": {"ruling": "refuse", "min_dot": "refuse", "sampling": "refuse", "angle": "refuse", "geometry": "ignore", "coverage": "report"},
 }
 TARGETS = tuple(POLICIES)
 

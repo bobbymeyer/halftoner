@@ -31,6 +31,15 @@ def linear_to_hex(rgb) -> str:
     return "#{:02X}{:02X}{:02X}".format(*s)
 
 
+def cmyk_from_linear(rgb_linear) -> tuple[float, float, float, float]:
+    """Naive CMYK from linear RGB: fine for a spot color's proofing alternate, not for color matching."""
+    r, g, b = (float(v) for v in linear_to_srgb(rgb_linear))
+    k = 1.0 - max(r, g, b)
+    if k >= 1.0 - 1e-9:
+        return (0.0, 0.0, 0.0, 1.0)
+    return ((1 - r - k) / (1 - k), (1 - g - k) / (1 - k), (1 - b - k) / (1 - k), k)
+
+
 def luma_linear(rgb_linear: np.ndarray) -> np.ndarray:
     """Rec. 709 relative luminance from linear RGB (last axis = channels)."""
     return rgb_linear @ np.array([0.2126, 0.7152, 0.0722])

@@ -190,7 +190,8 @@ class Recipe:
         save_png(composite(self, supersample=supersample, artifacts=artifacts), path, self.canvas.dpi)
 
     def render(self, target: str, out_dir=".", stem: str = "job", force: bool = False,
-               supersample: int = 4, film_dpi: float = 1200, wedge: bool = True):
+               supersample: int = 4, film_dpi: float = 1200, wedge: bool = True,
+               output_condition: str | None = None):
         """Render through a target's policy. Returns an Outcome; raises ConstraintRefused unless forced."""
         from pathlib import Path
 
@@ -211,7 +212,17 @@ class Recipe:
             from .render.film import write_films
 
             outcome.paths = write_films(job, out, stem, dpi=film_dpi, wedge=wedge)
+        elif target == "pdf":
+            path = out / f"{stem}.pdf"
+            job.render_pdf(path, output_condition=output_condition)
+            outcome.paths = [path]
         return outcome
+
+    def render_pdf(self, path, output_condition: str | None = None, marks: bool = True) -> dict[str, int]:
+        """PDF/X-1a spot separations, pre-screened and overprinted. Bypasses target policy."""
+        from .render.pdf import write_pdf
+
+        return write_pdf(self, path, output_condition=output_condition, marks=marks)
 
     def render_svg(self, path, artifacts: bool = False, precision: int = 2) -> dict[str, int]:
         from .render.svg import write_svg

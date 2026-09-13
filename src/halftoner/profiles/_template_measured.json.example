@@ -21,7 +21,8 @@
     "min_dot": 0.0,
     "max_dot": 1.0,
     "min_printable_mm": 0.0,
-    "compression": null
+    "compression": null,
+    "output_condition": "FOGRA29"
   },
   "screen": {"ruling_lpi": 0, "shape": "round", "angles": [0, 0]},
   "press": {"misregistration": 0.0, "drift": 0.35, "slur": 0.0, "press_angle": 90, "density_variance": 0.0, "trap_gap": 0.0, "extra_gain": 0.0},

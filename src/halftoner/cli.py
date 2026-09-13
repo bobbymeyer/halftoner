@@ -3,7 +3,7 @@
   halftoner profiles
   halftoner new job.json --profile newsprint_nominal --image photo.jpg --size 180x240 --ink red=#D6422B --ink blue=#1F3A63
   halftoner report job.json [--target film]
-  halftoner render job.json --target screen|svg|pod|film [--out out] [--force]
+  halftoner render job.json --target screen|svg|pod|film|pdf [--out out] [--force]
 """
 
 from __future__ import annotations
@@ -68,6 +68,7 @@ def cmd_render(args) -> int:
         outcome = job.render(
             args.target, args.out, stem=Path(args.recipe).stem, force=args.force,
             supersample=args.supersample, film_dpi=args.film_dpi, wedge=not args.no_wedge,
+            output_condition=args.output_condition,
         )
     except ConstraintRefused as e:
         print(e, file=sys.stderr)
@@ -137,6 +138,7 @@ def build_parser() -> argparse.ArgumentParser:
     d.add_argument("--supersample", type=int, default=4)
     d.add_argument("--film-dpi", type=float, default=1200)
     d.add_argument("--no-wedge", action="store_true")
+    d.add_argument("--output-condition", help="PDF/X registered characterization (default: substrate's, else FOGRA39)")
     d.set_defaults(fn=cmd_render)
 
     m = sub.add_parser("measure", help="measure a scan into a report and a draft press profile")

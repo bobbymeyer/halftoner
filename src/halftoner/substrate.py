@@ -26,6 +26,7 @@ class Substrate:
     max_dot: float = 1.0  # above this the white closes up (shadow snap)
     min_printable_mm: float = 0.0  # smallest dot diameter the stock holds
     compression: tuple[float, float] | None = None  # (lo, hi) tone range the stock can reproduce
+    output_condition: str | None = None  # registered characterization for PDF/X, e.g. FOGRA29
     provenance: str = "unspecified"
     notes: str = ""
 
@@ -48,6 +49,7 @@ class Substrate:
             "gain": self.gain.to_spec(), "min_dot": self.min_dot, "max_dot": self.max_dot,
             "min_printable_mm": self.min_printable_mm,
             "compression": list(self.compression) if self.compression else None,
+            "output_condition": self.output_condition,
             "provenance": self.provenance, "notes": self.notes,
         }
 
