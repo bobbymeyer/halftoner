@@ -82,13 +82,39 @@ def _floats(text: str) -> list[float]:
     return [float(v) for v in text.split(",")]
 
 
-def cmd_measure(args) -> int:
-    from .measure import measure_scan
-
+def _patches(args) -> list:
     patches = []
     for spec in args.patch or []:
         box, _, nominal = spec.partition("=")
         patches.append((tuple(_floats(box)), float(nominal) if nominal else None))
+    return patches
+
+
+def cmd_calibrate(args) -> int:
+    from .measure import measure_scan
+
+    profile = PressProfile.load(args.profile)
+    result = measure_scan(
+        args.scan, n_inks=args.inks, dpi=args.dpi, item=args.item or "",
+        names=args.names.split(",") if args.names else None,
+        patches=_patches(args), wedge=tuple(_floats(args.wedge)) if args.wedge else None, patch_ink=args.patch_ink,
+    )
+    print(result.report())
+    calibrated = result.calibrate_profile(profile, args.name)
+    out = Path(args.out or f"{calibrated.name}.json")
+    calibrated.save(out)
+    before, after = profile.substrate, calibrated.substrate
+    print(f"\ncalibrated {profile.name} -> {out}")
+    print(f"  printed at a 50% plate dot: {float(before.gain(0.5)):.1%} -> {float(after.gain(0.5)):.1%}")
+    print(f"  min dot {before.min_dot:.0%} -> {after.min_dot:.0%}, max dot {before.max_dot:.0%} -> {after.max_dot:.0%}")
+    print("  provenance: DRAFT until checked")
+    return 0
+
+
+def cmd_measure(args) -> int:
+    from .measure import measure_scan
+
+    patches = _patches(args)
     result = measure_scan(
         args.scan, n_inks=args.inks, dpi=args.dpi, item=args.item or "",
         names=args.names.split(",") if args.names else None,
@@ -164,6 +190,20 @@ def build_parser() -> argparse.ArgumentParser:
     m.add_argument("--profile-out", help="write a draft press profile here")
     m.add_argument("--name", help="profile name (default: file stem)")
     m.set_defaults(fn=cmd_measure)
+
+    c = sub.add_parser("calibrate", help="measure a printed step wedge into a copy of a press profile")
+    c.add_argument("profile", help="profile name or path to start from")
+    c.add_argument("scan")
+    c.add_argument("--inks", type=int, default=1, help="inks on the sheet (1-4)")
+    c.add_argument("--dpi", type=float, help="scan resolution, if the file doesn't record it")
+    c.add_argument("--names", help="comma-separated ink names, darkest first")
+    c.add_argument("--wedge", metavar="X,Y,PATCH_W", help="halftoner step wedge top-left and patch width, mm")
+    c.add_argument("--patch", action="append", metavar="X,Y,W,H=NOMINAL", help="flat tint patch in mm")
+    c.add_argument("--patch-ink", help="ink the wedge is printed in (solid color if no 100%% patch)")
+    c.add_argument("--item", help="what was scanned")
+    c.add_argument("--name", help="calibrated profile name (default: <profile>_calibrated)")
+    c.add_argument("--out", help="where to write it (default: <name>.json)")
+    c.set_defaults(fn=cmd_calibrate)
     return ap
 
 

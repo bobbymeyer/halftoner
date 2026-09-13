@@ -29,7 +29,7 @@ Recipe (saved as JSON: canvas, inks, overprints, sources, all params, seed)
 Source (image | constant | gradient | function, optionally Masked / Layered)
   │  sampled at each cell center, box-prefiltered to cell size
   ▼
-Transfer   tone → area (Yule–Nielsen vs. the ink's solid) → coverage bias → ink curve → compression
+Transfer   tone → area (Yule–Nielsen between the base and the ink's solid as printed) → coverage bias → ink curve → compression
            → inverse substrate gain → highlight drop / shadow snap           = plate area
   ▼
 Plate      one per ink: rotated grid, per-cell area; printed = gain(plate) + press gain
@@ -80,6 +80,12 @@ The bundled profiles are labeled `NOMINAL`. A profile named for a tradition shou
 
 The garment is the substrate's paper color. Inks with `opacity` cover with their own color, so plastisol over the base reads true while ink straight on the shirt sinks. `plastisol_dark_garment_nominal` is a starting profile (NOMINAL, not measured).
 
+**Tone relative to the base.** An ink moves reflectance between the bare base and its own solid *as printed* (with its opacity, over any underbase); the report prints both for every ink. `Transfer(tone_range=...)`:
+
+- `paper`: image white is the base; a dark ink darkens it, and tones darker than its solid clip. Ink on paper.
+- `range`: image white and black map to the lighter and darker of base and solid. The only reading that works for a light ink on a dark garment (more ink where the image is lighter), and a way to spread a light ink across a whole photo on paper.
+- `auto` (default): `range` when the solid is lighter than the base, otherwise `paper`, which is identical to the classic paper-relative mapping.
+
 ## Press artifacts
 
 All seeded, all per ink (never per RGB channel), applied by the screen and pod targets and left off film.
@@ -106,7 +112,15 @@ Masked regions are cut at full resolution, the way a tint was cut from film: edg
 | Misregistration | each plate descreened and phase-correlated against the key plate in tiles: median = offset, spread = drift. Needs shared structure between plates |
 | Gain and tone limits | effective Murray–Davies coverage on `--patch` boxes or a halftoner `--wedge`, measured on the solid's densest channel |
 
-The draft's provenance is `DRAFT`; change it to `MEASURED` only after checking the numbers against the scan. Not measured: dot shape (set it from a loupe crop), slur, density variance.
+The draft's provenance is `DRAFT`; change it to `MEASURED` only after checking the numbers against the scan.
+
+**Closing the gain loop.** Print a film sheet's step wedge on the press, scan it, and calibrate:
+
+```sh
+uv run halftoner calibrate uncoated_offset_nominal wedge_scan.tif --dpi 1200 --wedge 12,200,6 --patch-ink ink1 --out my_press.json
+```
+
+This writes a copy of the profile with only what the wedge measures replaced: `substrate.gain` (measured pairs), `min_dot` and `max_dot`, with `yule_nielsen_n` set to 1 because the pairs are effective coverage. The scan is appended to `measurements`, and provenance becomes `DRAFT`, naming the scan and keeping the original's provenance for everything else. Jobs built from it compensate for the press's real gain. Not measured: dot shape (set it from a loupe crop), slur, density variance.
 
 Validated against renders with known parameters (`tests/test_measure.py`): ruling within 1%, angle within 0.5°, ink colors, registration offsets within 0.05 mm, gain within 2 points.
 
@@ -150,11 +164,13 @@ Built to the standard and checked structurally and by rendering (`tests/test_pdf
 | 14 | Substrate / press profiles | done, nominal only until measured |
 | 15 | Constraint engine | done: computed, reported, policy-gated per target |
 | 16 | Supersampled raster export | done |
-| 17 | Step wedge emitter + curve ingest | wedge on film sheets; ingest via `gain` pairs |
+| 17 | Step wedge emitter + curve ingest | done: wedge on film sheets; `halftoner calibrate` writes measured gain and limits into a profile |
 | 18 | Film positive export | done (registration marks, labels, mirrored, 1-bit) |
 | 22 | Mean coverage as a settable target | done (`Ink(coverage=0.2)`) |
 | 24 | PDF/X export with separations and overprint flags | done (PDF/X-1a:2001; not yet preflighted) |
 | 19 | Underbase generation with choke, separately gain-compensated | done |
-| 20 | Garment color as the compositing base | partial: garment is the paper, opaque inks cover it; tone limits relative to the base not yet |
+| 20 | Garment color as the compositing base, tone limits relative to it | done: garment is the paper, opaque inks cover it, tone maps between base and solid as printed |
 | 21, 23 | Grid-commensurate ruling, FM screening | not yet |
-| — | resvg rasterizing of SVG output | not yet |
+| — | resvg rasterizing | not planned: see below |
+
+**Why not resvg.** The spec asks for compositing in ink space, never RGB layers with multiply. resvg would rasterize the SVG's multiply-blend preview, which is exactly that. The screen and pod targets already composite separations properly (overprint overrides, opacity, press artifacts), and large vector jobs belong in `--target pdf --pdf-mode bitmap`. SVG stays a preview and an editable vector export.

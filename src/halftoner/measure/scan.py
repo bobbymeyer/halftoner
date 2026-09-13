@@ -162,6 +162,37 @@ class ScanMeasurement:
             "ink": {"density": 1.0, "opacity": 0.0},
         }
 
+    def calibrate_profile(self, profile, name: str | None = None):
+        """A copy of `profile` with gain and tone limits replaced by this scan's wedge or patches.
+
+        Only what the patches measure changes. The result is DRAFT, names the scan it
+        came from, and keeps everything else (and its provenance) from the original.
+        """
+        from dataclasses import replace
+
+        from ..curves import Curve
+
+        pairs = gain_pairs(self.patches)
+        if len(pairs) < 2:
+            raise ValueError("calibration needs a scanned step wedge or at least two tint patches")
+        lo, hi = tone_limits(self.patches)
+        new_name = name or f"{profile.name}_calibrated"
+        provenance = (f"DRAFT - gain and tone limits calibrated from {Path(self.path).name}; "
+                      f"everything else from: {profile.provenance}")
+        substrate = replace(
+            profile.substrate, name=new_name, provenance=provenance, gain=Curve.from_points(pairs),
+            min_dot=lo if lo is not None else profile.substrate.min_dot,
+            max_dot=hi if hi is not None else profile.substrate.max_dot,
+        )
+        entry = self.draft_profile(new_name)["measurements"][0]
+        entry["calibrated"] = ["substrate.gain", "substrate.min_dot", "substrate.max_dot"]
+        note = "Calibrated gain is effective (Murray-Davies) coverage, so yule_nielsen_n is 1."
+        return replace(
+            profile, name=new_name, substrate=substrate, provenance=provenance,
+            notes=f"{profile.notes} {note}".strip(), transfer={**profile.transfer, "yule_nielsen_n": 1.0},
+            measurements=[*profile.measurements, entry],
+        )
+
     def save_profile(self, path, name: str | None = None) -> None:
         path = Path(path)
         path.write_text(json.dumps(self.draft_profile(name or path.stem), indent=2) + "\n")

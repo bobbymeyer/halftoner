@@ -12,12 +12,13 @@ from dataclasses import dataclass, field, replace
 import numpy as np
 
 from .canvas import Canvas
+from .color import luma_linear
 from .ink import InkSet
 from .press import Press
 from .screen import Plate, PlatePart, Screen, cell_range, lpi_to_pitch_mm
 from .sources import Layered, Masked, clip_of, clip_regions
 from .substrate import Substrate
-from .transfer import Transfer
+from .transfer import ToneRange, Transfer
 from .underbase import Underbase, erode
 
 GEOMETRY_WARN = 300_000
@@ -56,6 +57,7 @@ class Report:
     palette: list
     checks: list[Check] = field(default_factory=list)
     profile: str | None = None
+    tones: list[str] = field(default_factory=list)
 
     def __str__(self) -> str:
         c, s = self.canvas, self.substrate
@@ -81,6 +83,8 @@ class Report:
         for names, hexc, overridden in self.palette:
             label = " + ".join(names) if names else "paper"
             out.append(f"  {hexc}  {label}{'  (chosen)' if overridden else ''}")
+        if self.tones:
+            out += ["", "tone range (luminance: bare base -> solid as printed)"] + [f"  {t}" for t in self.tones]
         out += ["", "constraints (reported, not enforced)"]
         for ch in self.checks:
             out.append(f"  [{'ok' if ch.ok else 'PAST'}] {ch.name}: {ch.detail}")
@@ -147,6 +151,15 @@ class Recipe:
     def is_underbase(self, ink) -> bool:
         return self.underbase is not None and ink is self.underbase.ink
 
+    def tone_range_for(self, ink) -> ToneRange:
+        """Luminance of the bare substrate, and of a solid of `ink` as printed: with its opacity, over any underbase."""
+        inks = self.print_inks
+        primaries = inks.primaries(self.substrate.paper)
+        mask = 1 << [i.name for i in inks].index(ink.name)
+        if self.underbase is not None and not self.is_underbase(ink):
+            mask |= 1  # the underbase is printed first, bit 0
+        return ToneRange(float(luma_linear(primaries[0])), float(luma_linear(primaries[mask])))
+
     def plates(self) -> list[Plate]:
         """Plates in print order, matching print_inks."""
         if self._plates is None:
@@ -179,8 +192,10 @@ class Recipe:
         def printed_of(area):
             return np.where(area > 0, Transfer.printed_area(area, self.substrate, press.gain_curve), 0.0)
 
+        tone = self.tone_range_for(ink)
+
         def layer_areas(bias, sel=slice(None)):
-            return [self.transfer.plate_area(v[sel], k, ink, self.substrate, bias) for v, k in samples]
+            return [self.transfer.plate_area(v[sel], k, ink, self.substrate, bias, tone) for v, k in samples]
 
         bias = 1.0
         on = np.flatnonzero((X >= 0) & (X < cv.width_mm) & (Y >= 0) & (Y < cv.height_mm))
@@ -219,7 +234,7 @@ class Recipe:
             if isinstance(inner, Layered):
                 raise ValueError("an underbase needs Layered sources at the top level, not inside a Masked")
             area = self.transfer.plate_area(inner.sample(X, Y, cell_mm, self.canvas), inner.kind, ink,
-                                            self.substrate, plate.bias)
+                                            self.substrate, plate.bias, self.tone_range_for(ink))
             coverage = np.where(area > 0, Transfer.printed_area(area, self.substrate), 0.0)
             out.append((coverage, presence, clip_of(layer)))
         return out
@@ -300,7 +315,7 @@ class Recipe:
 
     def report(self) -> Report:
         cv, sub = self.canvas, self.substrate
-        rows, checks, total_dots = [], [], 0
+        rows, checks, tones, total_dots = [], [], [], 0
         for plate in self.plates():
             ink = plate.ink
             X, Y = plate.centers()
@@ -312,6 +327,11 @@ class Recipe:
             min_mm = plate.pitch_mm * np.sqrt(4 * min_dot / np.pi) if min_dot is not None else None
             dots = int((a > 0).sum())
             total_dots += dots
+            if not self.is_underbase(ink):
+                tr = self.tone_range_for(ink)
+                mode = self.transfer.tone_mode(tr)
+                meaning = "image white = base" if mode == "paper" else "image white = lighter end, black = darker"
+                tones.append(f"{ink.name[:12]:12} {tr.base:.3f} -> {tr.solid:.3f}  {mode} ({meaning})")
             rows.append(
                 InkReport(
                     ink.name, self.ruling_for(ink), ink.angle, plate.shape.name, plate.shape.join_points(), ratio,
@@ -341,5 +361,6 @@ class Recipe:
                 checks.append(Check(f"{a}/{b} angle separation", sep >= MIN_ANGLE_SEPARATION,
                                     f"{sep:.1f} deg (moire below {MIN_ANGLE_SEPARATION:g})", "angle"))
         checks.append(Check("geometry count", total_dots <= GEOMETRY_WARN,
-                            f"{total_dots:,} dots (browsers struggle past {GEOMETRY_WARN:,}; use resvg)", "geometry"))
-        return Report(cv, sub, rows, inks.palette(sub.paper), checks, self.profile)
+                            f"{total_dots:,} dots (browsers struggle past {GEOMETRY_WARN:,}; "
+                            "for big jobs use the screen target or pdf bitmap mode)", "geometry"))
+        return Report(cv, sub, rows, inks.palette(sub.paper), checks, self.profile, tones)
