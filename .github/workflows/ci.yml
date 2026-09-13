@@ -1,0 +1,44 @@
+name: tests
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pytest:
+    name: pytest (py${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.12", "3.13"]
+    env:
+      # The PDF tests rasterize with pdftoppm and skip without it. That is exactly how
+      # they went unrun, so here a missing poppler is an error rather than a quiet skip.
+      HALFTONER_REQUIRE_POPPLER: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install poppler
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends poppler-utils
+          pdftoppm -v
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Sync the locked environment
+        run: uv sync --locked --python ${{ matrix.python }}
+
+      # -rs prints the reason for any skip, so a test quietly dropping out is visible
+      # in the log rather than hiding inside the dot row.
+      - name: Run the tests
+        run: uv run --python ${{ matrix.python }} pytest -q -rs --durations=10

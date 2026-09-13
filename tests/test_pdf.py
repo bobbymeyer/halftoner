@@ -1,7 +1,6 @@
 """PDF/X-1a separations: structure, spot separations, overprint, placement."""
 
 import re
-import shutil
 import subprocess
 
 import numpy as np
@@ -10,6 +9,7 @@ from PIL import Image as PILImage
 from pypdf import PdfReader
 
 import halftoner as ht
+from conftest import needs_poppler
 from halftoner.policy import ConstraintRefused
 from halftoner.render.pdf import PT_PER_MM, SLUG_MM, write_pdf
 
@@ -81,7 +81,7 @@ def test_one_overprinting_spot_separation_per_ink(pdf):
     assert "re W n" in sections[1]  # the masked red plate is cut by its region
 
 
-@pytest.mark.skipif(shutil.which("pdftoppm") is None, reason="poppler not installed")
+@needs_poppler
 @pytest.mark.parametrize("mode", ["vector", "bitmap"])
 def test_renders_upright_and_in_place(tmp_path, mode):
     job = ht.Recipe(
@@ -139,7 +139,7 @@ def test_bitmap_mode_writes_one_image_mask_per_ink(tmp_path):
     assert "600 dpi" in PdfReader(path).metadata["/Keywords"]
 
 
-@pytest.mark.skipif(shutil.which("pdftoppm") is None, reason="poppler not installed")
+@needs_poppler
 def test_bitmap_and_vector_modes_print_the_same_plate(tmp_path):
     job = ht.Recipe(
         canvas=ht.Canvas.of(40, 30, dpi=150, bleed=2),
@@ -161,7 +161,7 @@ def test_bitmap_and_vector_modes_print_the_same_plate(tmp_path):
     assert np.abs(blocks(vector) - blocks(bitmap)).max() < 0.04 * 255
 
 
-@pytest.mark.skipif(shutil.which("pdftoppm") is None, reason="poppler not installed")
+@needs_poppler
 @pytest.mark.parametrize("mode", ["vector", "bitmap"])
 def test_ink_runs_into_the_bleed_and_stops_there(tmp_path, mode):
     job = ht.Recipe(

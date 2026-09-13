@@ -1,5 +1,7 @@
 # halftoner
 
+[![tests](https://github.com/bobbymeyer/halftoner/actions/workflows/ci.yml/badge.svg)](https://github.com/bobbymeyer/halftoner/actions/workflows/ci.yml)
+
 Ink-first halftones from press profiles. A screen is a fill function over a grid; a job is an ink set; a recipe is the artifact and every output is a render of it.
 
 ```sh
