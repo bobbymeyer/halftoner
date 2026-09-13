@@ -20,7 +20,7 @@ from .screen import Plate, PlatePart, Screen, cell_range, lpi_to_pitch_mm
 from .sources import Layered, Masked, clip_of, clip_regions
 from .substrate import Substrate
 from .transfer import ToneRange, Transfer
-from .underbase import Underbase, erode
+from .underbase import MIN_ERODE_CELLS, Underbase, erode
 
 GEOMETRY_WARN = 300_000
 MIN_ANGLE_SEPARATION = 15.0
@@ -415,6 +415,15 @@ class Recipe:
                 got = rows[-1].mean_printed
                 checks.append(Check(f"{ink.name} coverage target", abs(got - ink.coverage) <= 0.005,
                                     f"target {ink.coverage:.1%}, got {got:.1%} (bias {plate.bias:.2f})", "coverage"))
+            if self.is_underbase(ink) and self.underbase.choke_mm > 0:
+                # The choke is millimetres but tonal edges erode on this plate's cell grid, so a choke
+                # finer than a cell silently does nothing to them. Region edges are cut at full
+                # resolution and keep their choke either way.
+                cells = self.underbase.choke_mm / plate.pitch_mm
+                checks.append(Check(f"{ink.name} choke >= one cell", cells >= MIN_ERODE_CELLS,
+                                    f"{self.underbase.choke_mm:g} mm is {cells:.2f} of a {plate.pitch_mm:.3f} mm "
+                                    f"cell (tonal edges need {MIN_ERODE_CELLS:g} full cell; region edges are cut "
+                                    f"at full resolution regardless)", "choke"))
 
         inks = self.print_inks
         for ia, ib in combinations(inks, 2):

@@ -95,7 +95,7 @@ Substrates carry `tac` (uncoated 300%, newsprint 240%); the report sums every pl
 `Recipe(underbase=Underbase(...))`, `profile.recipe(..., underbase=True)`, or `halftoner new --underbase` adds a plate printed first, derived from where the colors print:
 
 - **Demand**: at each underbase cell, the heaviest *printed* coverage of any color, each through its own tone chain, optionally weighted per ink (`weights={"navy": 0.5}` for less base under dark inks).
-- **Choke** (`choke_mm`): tonal edges are eroded on the underbase's cell grid (minimum over a disk); region edges are cut at full resolution with every color region inset by the choke, so misregistration doesn't show a halo.
+- **Choke** (`choke_mm`): tonal edges are eroded on the underbase's cell grid (minimum over a disk); region edges are cut at full resolution with every color region inset by the choke, so misregistration doesn't show a halo. The tonal erosion is quantised to whole cells, so a choke finer than one cell doesn't move a tonal edge at all — the report says so rather than letting it pass silently. `plastisol_dark_garment_nominal`'s 0.3 mm is 0.53 of a cell at its own 45 lpi, so on a photographic source only its region edges are choked; raise the choke or the ruling if you need the tonal ones too.
 - **Own gain** (`gain`): compensated on its own curve, since white on cotton spreads far more than the colors on the flashed base.
 - It prints first, so it's the key plate for misregistration, joins the palette (`underbase + gold`), the angle checks, ruling caps, film, and PDF separations.
 
@@ -157,6 +157,7 @@ Validated against renders with known parameters (`tests/test_measure.py`): rulin
 | Coverage target reached | report | report | report | report | report |
 | Total area coverage ≤ substrate TAC | report | report | report | refuse | refuse |
 | Grid rows lock (non-square repeat) | report | report | report | report | report |
+| Underbase choke reaches one cell | report | report | report | report | report |
 
 ## PDF/X
 

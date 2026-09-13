@@ -12,7 +12,7 @@ from dataclasses import dataclass, field, replace
 
 from .ink import InkSet
 
-_REPORT = {"coverage": "report", "grid": "report"}
+_REPORT = {"coverage": "report", "grid": "report", "choke": "report"}
 POLICIES: dict[str, dict[str, str]] = {
     "screen": {"ruling": "report", "min_dot": "report", "sampling": "report", "angle": "report", "geometry": "ignore",
                "tac": "report", **_REPORT},

@@ -35,9 +35,18 @@ class Underbase:
         return Curve.from_spec(self.gain)
 
 
+MIN_ERODE_CELLS = 1.0
+"""Below one cell the disk holds no neighbour, so eroding a tonal edge is a no-op.
+
+The choke is a length in millimetres but tonal edges are eroded on the underbase's
+cell grid, so a choke finer than the cell cannot pull the base back at all. Callers
+that care (the report's `choke` check) compare against this rather than guessing.
+"""
+
+
 def erode(grid: np.ndarray, radius_cells: float) -> np.ndarray:
     """Grayscale erosion: minimum over a disk of `radius_cells`. Beyond the grid repeats the edge."""
-    if radius_cells < 0.5:
+    if radius_cells < MIN_ERODE_CELLS:
         return grid
     r = int(np.floor(radius_cells))
     padded = np.pad(grid, r, mode="edge")
