@@ -17,6 +17,7 @@ from typing import Callable
 
 import numpy as np
 from PIL import Image as PILImage
+from PIL import ImageOps
 
 from .color import luma_linear, srgb_to_linear
 
@@ -88,7 +89,11 @@ class Image(Source):
     _cache: dict = field(init=False, repr=False, default_factory=dict)
 
     def __post_init__(self):
-        rgb = srgb_to_linear(np.asarray(PILImage.open(self.path).convert("RGB"), dtype=np.float64) / 255.0)
+        # exif_transpose first: a phone shoots portrait by rotating the sensor and recording the
+        # orientation tag, so the stored pixels are sideways. Without this every such photo is
+        # screened rotated, and "cover" crops the wrong axis. A no-op when the tag is absent or 1.
+        src = ImageOps.exif_transpose(PILImage.open(self.path))
+        rgb = srgb_to_linear(np.asarray(src.convert("RGB"), dtype=np.float64) / 255.0)
         if callable(self.channel):
             self._lin = np.asarray(self.channel(rgb), dtype=np.float32)
         elif self.channel == "luma":
