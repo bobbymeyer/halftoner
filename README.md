@@ -23,6 +23,29 @@ uv run halftoner measure scan.tif --inks 2 --dpi 1200 --item "title, publisher, 
     --wedge 12,200,6 --patch-ink ink2 --profile-out draft.json   # scan -> report + DRAFT profile
 ```
 
+## Looks
+
+Five looks off three photographs. Same canvas, same seed, same 4x supersample — all that
+changes between them is the profile, the ink set and the screen.
+
+| | | |
+| :-- | :-- | :-- |
+| <img src="examples/gallery/newsprint.png" width="240" alt="A portrait screened finely on newsprint"> | <img src="examples/gallery/coarse.png" width="240" alt="The same portrait at sixteen lines per inch"> | <img src="examples/gallery/duotone.png" width="240" alt="A night pier in two spot inks"> |
+| **Newsprint, one ink.** 65 lpi elliptical on a cream stock that spreads 28% at the midtone, compensated back on the plate. | **The screen as the subject.** The same face at 16 lpi. Nothing changed but the ruling. | **Two spot inks.** Midnight and rust on their own curves, overprinting a colour that was *chosen* — `#0F1622` — not computed. |
+| <img src="examples/gallery/line.png" width="240" alt="A flat logo through a line screen"> | <img src="examples/gallery/garment.png" width="240" alt="A portrait printed on a near-black shirt"> | |
+| **Line screen.** Tone carried by line weight alone; the fill never joins across. Flat art, so the screen only does anything at the edges. | **On a near-black shirt.** Both inks are lighter than the garment, so `tone_range` auto reads the picture as *range*: more ink where the image is lighter, and the dark shirt prints as bare cotton. | |
+
+Regenerate them with your own photographs:
+
+```sh
+uv run python examples/styles.py --portrait face.jpg --night dusk.jpg \
+    --colour orchard.jpg --graphic logo.jpg
+```
+
+Any option you leave out falls back to a synthetic stand-in, except `--colour`, whose panel
+is a four-ink separation and is skipped instead — a stand-in there would be demonstrating
+the stand-in rather than the separation.
+
 ## Pipeline
 
 ```
