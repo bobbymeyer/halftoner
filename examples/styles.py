@@ -64,7 +64,8 @@ def main(argv: list[str]) -> int:
     for name, help_text in [("portrait", "a face, for the ruling panels"),
                             ("night", "a dark scene, for the duotone"),
                             ("colour", "a saturated photograph, for the CMYK separation"),
-                            ("graphic", "flat art with a hard edge, for the line screen")]:
+                            ("graphic", "flat art with a hard edge, for the line screen; "
+                                        "falls back to --colour")]:
         ap.add_argument(f"--{name}", help=help_text)
     args = ap.parse_args(argv)
     portrait, night, colour, graphic = args.portrait, args.night, args.colour, args.graphic
@@ -99,9 +100,11 @@ def main(argv: list[str]) -> int:
     else:
         print("  (no --colour photo; skipping the CMYK panel)")
 
-    # 5. A line screen carries tone by line weight alone and never joins across.
+    # 5. A line screen carries tone by line weight alone and never joins across. Flat art
+    #    shows that best, but any photograph will do -- it turns into an engraving.
     render("line", UNCOATED.recipe(
-        canvas=CANVAS, inks=UNCOATED.inks(("ink", "#CC4038")), source=source(graphic, "graphic"),
+        canvas=CANVAS, inks=UNCOATED.inks(("ink", "#1E3A2E")),
+        source=source(graphic or colour, "graphic" if graphic else "portrait"),
         seed=SEED, screen={"ruling_lpi": 34, "shape": "line"}, press=CLEAN))
 
     # 6. On a near-black shirt both inks are lighter than the garment, so tone_range
