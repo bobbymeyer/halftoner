@@ -21,10 +21,15 @@ uv run halftoner render job.json --target screen
 
 ## looks
 
+Same canvas and same seed throughout; the profile, the ink set and the screen
+are what change.
+
 | | | |
 | :-- | :-- | :-- |
 | <img src="examples/gallery/newsprint.png" width="240" alt="A portrait screened finely on newsprint"> | <img src="examples/gallery/coarse.png" width="240" alt="The same portrait at sixteen lines per inch"> | <img src="examples/gallery/duotone.png" width="240" alt="A night pier in two spot inks"> |
+| `newsprint_nominal`, one ink `#141414`, 65 lpi elliptical at ratio 1.2 | `uncoated_offset_nominal`, one ink `#16181D`, 16 lpi round, clean press | `uncoated_offset_nominal`, `midnight` + `rust` on their own curves, overprint set to `#0F1622`, 50 lpi elliptical at ratio 1.4 |
 | <img src="examples/gallery/process.png" width="240" alt="An orchard below snowy mountains, separated into four process inks"> | <img src="examples/gallery/line.png" width="240" alt="The same orchard through a line screen"> | <img src="examples/gallery/garment.png" width="240" alt="A portrait printed on a near-black shirt"> |
+| `uncoated_offset_nominal`, `--process` device separation at the substrate's TAC, 55 lpi | `uncoated_offset_nominal`, one ink `#1E3A2E`, 34 lpi line screen | `plastisol_dark_garment_nominal`, `bone` + `amber`, 40 lpi, underbase choked 1.0mm |
 
 ```sh
 uv run python examples/styles.py --portrait face.jpg --night dusk.jpg \
